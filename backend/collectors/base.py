@@ -1,6 +1,11 @@
+import os
 import pywencai
 import pandas as pd
 import logging
+
+# Bypass system proxy for requests used by pywencai and other libraries
+for _k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+    os.environ.pop(_k, None)
 
 logger = logging.getLogger(__name__)
 

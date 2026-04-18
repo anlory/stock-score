@@ -27,44 +27,44 @@ def _build_col_map(columns):
 
 def collect_news(session, target_codes: set[str] = None):
     today = date.today().isoformat()
-    df = query_wencai(QUERY)
-    if df.empty:
-        logger.warning("News query returned empty")
+    codes = sorted(target_codes) if target_codes else []
+    if not codes:
         return 0
-
-    code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
-    if not code_col:
-        return 0
-
-    col_map = _build_col_map(df.columns.tolist())
-    logger.info(f"News col map: {col_map}")
 
     count = 0
-    seen = set()
-    for _, row in df.iterrows():
-        code = normalize_code(row[code_col])
-        if code in seen:
+    for i in range(0, len(codes), 50):
+        batch = codes[i:i+50]
+        codes_str = " ".join(batch)
+        df = query_wencai(f"{codes_str} 近30日研报数量 研报评级")
+        if df.empty:
             continue
-        seen.add(code)
-        if target_codes and code not in target_codes:
+
+        code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
+        if not code_col:
             continue
-        record = {"code": code, "date": today}
-        for field, col in col_map.items():
-            val = row.get(col)
-            if field == "report_count":
-                try:
-                    record[field] = int(val) if val is not None else None
-                except (TypeError, ValueError):
-                    record[field] = None
-            else:
-                record[field] = str(val) if val is not None else None
-        if len(record) <= 2:  # only code + date, no data columns matched
-            continue
-        try:
-            upsert(session, DailyData, record, ["code", "date"])
-            count += 1
-        except Exception as e:
-            logger.error(f"News upsert failed for {code}: {e}")
+
+        col_map = _build_col_map(df.columns.tolist())
+        seen = set()
+        for _, row in df.iterrows():
+            code = normalize_code(row[code_col])
+            if code in seen or code not in target_codes:
+                continue
+            seen.add(code)
+            record = {"code": code, "date": today}
+            for field, col in col_map.items():
+                val = row.get(col)
+                if field == "report_count":
+                    try:
+                        record[field] = int(val) if val is not None else None
+                    except (TypeError, ValueError):
+                        record[field] = None
+                else:
+                    record[field] = str(val) if val is not None else None
+            try:
+                upsert(session, DailyData, record, ["code", "date"])
+                count += 1
+            except Exception as e:
+                logger.error(f"News upsert failed for {code}: {e}")
 
     session.commit()
     logger.info(f"News data collected: {count} stocks")

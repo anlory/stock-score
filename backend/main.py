@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from backend.database import init_db, get_db_session, seed_strategies
-from backend.routers import stocks, scores, trigger
+from backend.routers import stocks, scores, trigger, analysis
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
@@ -30,6 +30,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 app.include_router(stocks.router)
 app.include_router(scores.router)
 app.include_router(trigger.router)
+app.include_router(analysis.router)
 
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")

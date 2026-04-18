@@ -2,8 +2,8 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
-export const getLeaderboard = (strategy, type) =>
-  api.get('/scores/leaderboard', { params: { strategy, type } }).then(r => r.data)
+export const getLeaderboard = (type) =>
+  api.get('/scores/leaderboard', { params: { type } }).then(r => r.data)
 
 export const getStockDetail = (code, strategy) =>
   api.get(`/scores/${code}`, { params: { strategy } }).then(r => r.data)
@@ -25,3 +25,9 @@ export const triggerCollect = () =>
 
 export const getCollectStatus = () =>
   api.get('/trigger/status').then(r => r.data)
+
+export const getKline = (code, days = 60) =>
+  api.get(`/scores/kline/${code}`, { params: { days } }).then(r => r.data)
+
+export const getAnalysis = (code) =>
+  api.get(`/analysis/${code}`).then(r => r.data)

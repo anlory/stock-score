@@ -11,7 +11,7 @@
           :disabled="collecting"
           class="bg-blue-800 hover:bg-blue-700 disabled:opacity-50 text-white text-sm px-3 py-1 rounded transition-colors"
         >
-          {{ collecting ? '采集中...' : '手动采集' }}
+          {{ collecting ? '同步中...' : '同步' }}
         </button>
       </div>
     </nav>

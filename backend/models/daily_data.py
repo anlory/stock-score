@@ -1,14 +1,18 @@
-from sqlalchemy import Column, String, Float, Integer
+from sqlalchemy import Column, String, Float, Integer, Text
 from backend.models.stock import Base
 
 class DailyData(Base):
     __tablename__ = "daily_data"
     code = Column(String, primary_key=True)
     date = Column(String, primary_key=True)
+    ai_analysis = Column(Text)
     close = Column(Float)
     ma5 = Column(Float)
     ma13 = Column(Float)
     ma30 = Column(Float)
+    prev_ma5 = Column(Float)
+    prev_ma13 = Column(Float)
+    prev_ma30 = Column(Float)
     macd_dif = Column(Float)
     macd_dea = Column(Float)
     macd_bar = Column(Float)

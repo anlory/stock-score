@@ -3,64 +3,96 @@ from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
 from backend.database import get_session
 from backend.models import Score, Stock, DailyData
+from backend.collectors.tencent_kline import fetch_kline
 
 router = APIRouter(prefix="/api/scores", tags=["scores"])
 
+
+@router.get("/kline/{code}")
+def get_kline(code: str, days: int = Query(60, ge=7, le=365)):
+    """Get daily K-line data for a stock via Tencent Finance API."""
+    code = code.zfill(6)
+    try:
+        return fetch_kline(code, days)
+    except Exception:
+        return []
+
+def _latest_date(session):
+    row = session.query(Score).order_by(Score.date.desc()).first()
+    return row.date if row else date.today().isoformat()
+
+
 @router.get("/leaderboard")
 def get_leaderboard(
-    strategy: str = Query("trend"),
     type: str = Query("other"),
     session: Session = Depends(get_session),
 ):
-    today = date.today().isoformat()
-    query = (
-        session.query(Score, Stock)
-        .join(Stock, Score.code == Stock.code)
-        .filter(Score.date == today, Score.strategy == strategy)
-    )
+    latest = _latest_date(session)
+    trend_map = {}
+    for s in session.query(Score).filter(Score.date == latest, Score.strategy == "trend"):
+        trend_map[s.code] = s
+    short_map = {}
+    for s in session.query(Score).filter(Score.date == latest, Score.strategy == "short_term"):
+        short_map[s.code] = s
+
+    all_codes = set(trend_map.keys()) | set(short_map.keys())
+    stocks = {s.code: s for s in session.query(Stock).filter(Stock.code.in_(all_codes))}
     if type == "watchlist":
-        query = query.filter(Stock.is_watchlist == True)
-    else:
-        query = query.filter(Stock.is_watchlist == False)
-    results = query.order_by(Score.total_score.desc()).limit(200).all()
-    return [
+        all_codes = {c for c in all_codes if c in stocks and stocks[c].is_watchlist}
+
+    ranked = sorted(all_codes, key=lambda c: trend_map[c].total_score if c in trend_map else 0, reverse=True)[:200]
+    return {
+        "date": latest,
+        "stocks": [
         {
-            "rank": i + 1, "code": s.code, "name": st.name,
-            "total_score": s.total_score,
-            "technical_score": s.technical_score,
-            "capital_score": s.capital_score,
-            "fundamental_score": s.fundamental_score,
-            "news_score": s.news_score,
-            "heat_score": s.heat_score,
+            "rank": i + 1, "code": c, "name": stocks[c].name if c in stocks else c,
+            "is_watchlist": stocks[c].is_watchlist if c in stocks else False,
+            "short_score": short_map[c].total_score if c in short_map else None,
+            "trend_score": trend_map[c].total_score if c in trend_map else None,
+            "technical_score": trend_map[c].technical_score if c in trend_map else None,
+            "capital_score": trend_map[c].capital_score if c in trend_map else None,
+            "fundamental_score": trend_map[c].fundamental_score if c in trend_map else None,
+            "news_score": trend_map[c].news_score if c in trend_map else None,
+            "heat_score": trend_map[c].heat_score if c in trend_map else None,
         }
-        for i, (s, st) in enumerate(results)
-    ]
+        for i, c in enumerate(ranked)
+        ]
+    }
+
+def _score_dict(s):
+    return {
+        "total": s.total_score,
+        "technical": s.technical_score,
+        "capital": s.capital_score,
+        "fundamental": s.fundamental_score,
+        "news": s.news_score,
+        "heat": s.heat_score,
+    }
 
 @router.get("/{code}")
-def get_stock_detail(code: str, strategy: str = Query("trend"), session: Session = Depends(get_session)):
-    today = date.today().isoformat()
+def get_stock_detail(code: str, session: Session = Depends(get_session)):
+    latest = _latest_date(session)
     code = code.zfill(6)
-    score = session.query(Score).filter(
-        Score.code == code, Score.date == today, Score.strategy == strategy
-    ).first()
     stock = session.get(Stock, code)
     daily = session.query(DailyData).filter(
-        DailyData.code == code, DailyData.date == today
+        DailyData.code == code, DailyData.date == latest
     ).first()
-    if not score:
-        return {"error": "No score data for today"}
+    short = session.query(Score).filter(
+        Score.code == code, Score.date == latest, Score.strategy == "short_term"
+    ).first()
+    trend = session.query(Score).filter(
+        Score.code == code, Score.date == latest, Score.strategy == "trend"
+    ).first()
+    if not short and not trend:
+        return {"error": "暂无评分数据"}
     return {
         "code": code,
         "name": stock.name if stock else code,
-        "scores": {
-            "total": score.total_score,
-            "technical": score.technical_score,
-            "capital": score.capital_score,
-            "fundamental": score.fundamental_score,
-            "news": score.news_score,
-            "heat": score.heat_score,
-        },
+        "short_term": _score_dict(short) if short else None,
+        "trend": _score_dict(trend) if trend else None,
+        "scores": _score_dict(trend) if trend else (_score_dict(short) if short else {}),
         "raw": {k: v for k, v in daily.__dict__.items() if not k.startswith("_")} if daily else {},
+        "ai_analysis": daily.ai_analysis if daily else None,
     }
 
 @router.get("/{code}/history")

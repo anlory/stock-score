@@ -1,68 +1,76 @@
 import logging
-import re
 from datetime import date
-from backend.collectors.base import query_wencai, normalize_code
+import httpx
 from backend.database import upsert
 from backend.models import DailyData
 
 logger = logging.getLogger(__name__)
 
-QUERY = "主力资金流向 特大单净额 陆股通净买入额 融资净买入额"
-
-COL_PATTERNS = {
-    "main_inflow_today":  [r"主力资金流向", r"主力净流入"],
-    "super_large_inflow": [r"特大单净"],
-    "north_inflow":       [r"陆股通净买入", r"北向.*净"],
-    "margin_net_buy":     [r"融资净买入"],
-}
+_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_FF_URL = "http://push2.eastmoney.com/api/qt/stock/fflow/kline/get"
 
 
-def _build_col_map(columns):
-    mapping = {}
-    for field, patterns in COL_PATTERNS.items():
-        for col in columns:
-            if any(re.search(p, col) for p in patterns):
-                mapping[field] = col
-                break
-    return mapping
+def _secid(code: str) -> str:
+    if code.startswith(("6", "5", "9")):
+        return f"1.{code}"
+    if code.startswith(("4", "8")):
+        return f"0.{code}"
+    return f"0.{code}"
 
 
 def collect_capital(session, target_codes: set[str] = None):
+    """Fetch capital flow data per stock via eastmoney fund flow API."""
     today = date.today().isoformat()
-    df = query_wencai(QUERY)
-    if df.empty:
-        logger.warning("Capital query returned empty")
+    codes = sorted(target_codes) if target_codes else []
+    if not codes:
         return 0
-
-    code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
-    if not code_col:
-        logger.error(f"No code column. Columns: {df.columns.tolist()}")
-        return 0
-
-    col_map = _build_col_map(df.columns.tolist())
-    logger.info(f"Capital col map: {col_map}")
 
     count = 0
-    seen = set()
-    for _, row in df.iterrows():
-        code = normalize_code(row[code_col])
-        if code in seen:
-            continue
-        seen.add(code)
-        if target_codes and code not in target_codes:
-            continue
-        record = {"code": code, "date": today}
-        for field, col in col_map.items():
-            try:
-                record[field] = float(row[col]) if row.get(col) is not None else None
-            except (TypeError, ValueError):
-                record[field] = None
+    for code in codes:
         try:
+            secid = _secid(code)
+            params = {
+                "secid": secid,
+                "fields1": "f1,f2,f3,f4",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+                "klt": "101",
+                "lmt": "5",
+            }
+            r = httpx.get(_FF_URL, params=params, headers=_HEADERS, timeout=10, follow_redirects=True)
+            r.raise_for_status()
+            body = r.json()
+            klines = body.get("data", {}).get("klines", [])
+            if not klines:
+                continue
+
+            # Parse last row: date, main_inflow, small_inflow, medium_inflow, large_inflow, super_large_inflow
+            last = klines[-1].split(",")
+            if len(last) < 6:
+                continue
+
+            record = {
+                "code": code, "date": today,
+                "main_inflow_today": _parse_float(last[1]),
+                "super_large_inflow": _parse_float(last[5]),
+            }
+
+            # 5-day main inflow sum
+            if len(klines) >= 3:
+                total = sum(_parse_float(k.split(",")[1]) for k in klines if len(k.split(",")) > 1)
+                record["main_inflow_5d"] = round(total, 2)
+
             upsert(session, DailyData, record, ["code", "date"])
             count += 1
         except Exception as e:
-            logger.error(f"Capital upsert failed for {code}: {e}")
+            logger.error(f"Capital failed for {code}: {e}")
 
     session.commit()
     logger.info(f"Capital data collected: {count} stocks")
     return count
+
+
+def _parse_float(val: str):
+    try:
+        return round(float(val), 2)
+    except (TypeError, ValueError):
+        return None
