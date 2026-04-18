@@ -29,3 +29,39 @@ def upsert(session, model, data: dict, index_elements: list):
     update_cols = {k: stmt.excluded[k] for k in data if k not in index_elements}
     stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=update_cols)
     session.execute(stmt)
+
+def seed_strategies(session):
+    """Insert preset strategies if not already present."""
+    from backend.models import Strategy
+    strategies = [
+        {
+            "name": "short_term",
+            "display_name": "短线策略",
+            "technical_weight": 0.35,
+            "capital_weight": 0.25,
+            "fundamental_weight": 0.0,
+            "news_weight": 0.10,
+            "heat_weight": 0.30,
+        },
+        {
+            "name": "trend",
+            "display_name": "趋势策略",
+            "technical_weight": 0.40,
+            "capital_weight": 0.30,
+            "fundamental_weight": 0.05,
+            "news_weight": 0.05,
+            "heat_weight": 0.20,
+        },
+        {
+            "name": "value",
+            "display_name": "价值策略",
+            "technical_weight": 0.20,
+            "capital_weight": 0.15,
+            "fundamental_weight": 0.50,
+            "news_weight": 0.10,
+            "heat_weight": 0.05,
+        },
+    ]
+    for s in strategies:
+        upsert(session, Strategy, s, ["name"])
+    session.commit()
