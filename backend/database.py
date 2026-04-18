@@ -12,9 +12,19 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 def get_session():
+    """FastAPI Depends generator - yields and auto-closes session."""
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+def get_db_session():
+    """Direct session factory for non-FastAPI code (scheduler, tests). Caller must close."""
     return SessionLocal()
 
 def upsert(session, model, data: dict, index_elements: list):
+    """Execute INSERT OR UPDATE. Caller is responsible for session.commit()."""
     stmt = sqlite_insert(model).values(**data)
     update_cols = {k: stmt.excluded[k] for k in data if k not in index_elements}
     stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=update_cols)
