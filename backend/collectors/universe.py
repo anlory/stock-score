@@ -6,6 +6,14 @@ from backend.models import Stock
 
 logger = logging.getLogger(__name__)
 
+def _get_market(code: str) -> str:
+    """Determine market from stock code prefix."""
+    if code.startswith(("6", "5", "9")):
+        return "SH"
+    if code.startswith(("4", "8")):
+        return "BJ"
+    return "SZ"
+
 def get_hot_sector_stocks() -> list[str]:
     """Get stocks from top 10 hot sectors today via pywencai."""
     df = query_wencai("涨幅最大的10个行业板块", query_type="plate")
@@ -56,7 +64,7 @@ def sync_universe(session, watchlist_codes: list[str] = None):
             index_stocks[code]["tags"].append(tag)
 
     for code, info in index_stocks.items():
-        market = "SH" if code.startswith("6") else "SZ"
+        market = _get_market(code)
         upsert(session, Stock, {
             "code": code, "name": info["name"], "market": market,
             "is_watchlist": False, "index_tags": json.dumps(info["tags"]),
@@ -67,7 +75,7 @@ def sync_universe(session, watchlist_codes: list[str] = None):
     for code in hot_codes:
         existing = session.get(Stock, code)
         if not existing:
-            market = "SH" if code.startswith("6") else "SZ"
+            market = _get_market(code)
             upsert(session, Stock, {
                 "code": code, "name": code, "market": market,
                 "is_watchlist": False, "index_tags": "[]",
@@ -77,7 +85,7 @@ def sync_universe(session, watchlist_codes: list[str] = None):
     if watchlist_codes:
         for raw_code in watchlist_codes:
             code = normalize_code(raw_code)
-            market = "SH" if code.startswith("6") else "SZ"
+            market = _get_market(code)
             existing = session.get(Stock, code)
             if existing:
                 existing.is_watchlist = True
