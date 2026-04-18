@@ -18,7 +18,7 @@
         :class="tab === t.value ? 'border-amber-400 text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-300'"
       >{{ t.label }}</button>
     </div>
-    <ScoreTable :rows="rows" />
+    <ScoreTable :rows="rows" :tab="tab" @added="load" />
   </div>
 </template>
 
@@ -28,7 +28,7 @@ import ScoreTable from '../components/ScoreTable.vue'
 import { getLeaderboard } from '../api'
 
 const strategy = ref('trend')
-const tab = ref('watchlist')
+const tab = ref('other')
 const rows = ref([])
 
 const strategies = [
@@ -37,8 +37,8 @@ const strategies = [
   { value: 'value', label: '价值策略' },
 ]
 const tabs = [
-  { value: 'watchlist', label: '自选股' },
   { value: 'other', label: '其他股票' },
+  { value: 'watchlist', label: '自选股' },
 ]
 
 async function load() {

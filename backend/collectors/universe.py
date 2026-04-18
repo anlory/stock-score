@@ -43,17 +43,17 @@ def sync_universe(session, watchlist_codes: list[str] = None):
     """Sync full stock universe (index + hot sectors + watchlist) to DB."""
     # 1. 指数成分股
     index_map = {
-        "沪深300成分股 股票代码 股票名称": "hs300",
-        "中证500成分股 股票代码 股票名称": "zz500",
-        "创业板指成分股 股票代码 股票名称": "cyb",
+        "沪深300成分股 股票代码 股票简称": "hs300",
+        "中证500成分股 股票代码 股票简称": "zz500",
+        "创业板指成分股 股票代码 股票简称": "cyb",
     }
     index_stocks: dict[str, dict] = {}
     for query, tag in index_map.items():
         df = query_wencai(query)
         if df.empty:
             continue
-        code_col = next((c for c in df.columns if "代码" in c), None)
-        name_col = next((c for c in df.columns if "名称" in c), None)
+        code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
+        name_col = next((c for c in df.columns if "简称" in c or "名称" in c), None)
         if not code_col:
             continue
         for _, row in df.iterrows():

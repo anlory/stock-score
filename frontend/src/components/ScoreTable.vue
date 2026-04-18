@@ -11,7 +11,7 @@
           <th class="text-right py-2 px-3 cursor-pointer hover:text-white" @click="sort('fundamental_score')">基本</th>
           <th class="text-right py-2 px-3 cursor-pointer hover:text-white" @click="sort('news_score')">消息</th>
           <th class="text-right py-2 px-3 cursor-pointer hover:text-white" @click="sort('heat_score')">热度</th>
-          <th class="text-right py-2 px-3"></th>
+          <th class="text-right py-2 px-3">操作</th>
         </tr>
       </thead>
       <tbody>
@@ -27,8 +27,10 @@
           <td class="py-2 px-3 text-right font-mono text-gray-300">{{ row.fundamental_score }}</td>
           <td class="py-2 px-3 text-right font-mono text-gray-300">{{ row.news_score }}</td>
           <td class="py-2 px-3 text-right font-mono text-gray-300">{{ row.heat_score }}</td>
-          <td class="py-2 px-3 text-right">
+          <td class="py-2 px-3 text-right flex items-center justify-end gap-2">
             <router-link :to="'/stock/' + row.code" class="text-blue-400 hover:text-blue-300 text-xs">详情</router-link>
+            <button v-if="tab === 'other'" @click="addToWatchlist(row)" class="text-amber-400 hover:text-amber-300 text-xs">+自选</button>
+            <button v-if="tab === 'watchlist'" @click="removeFromWatchlist(row)" class="text-red-400 hover:text-red-300 text-xs">移除</button>
           </td>
         </tr>
       </tbody>
@@ -39,7 +41,10 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-const props = defineProps({ rows: Array })
+import { addWatchlist, removeWatchlist } from '../api'
+
+const props = defineProps({ rows: Array, tab: String })
+const emit = defineEmits(['added'])
 const sortKey = ref('total_score')
 function sort(key) { sortKey.value = key }
 const sorted = computed(() =>
@@ -49,5 +54,13 @@ function scoreColor(score) {
   if (score >= 75) return 'text-green-400'
   if (score >= 50) return 'text-yellow-400'
   return 'text-red-400'
+}
+async function addToWatchlist(row) {
+  await addWatchlist(row.code, row.name)
+  emit('added')
+}
+async function removeFromWatchlist(row) {
+  await removeWatchlist(row.code)
+  emit('added')
 }
 </script>
