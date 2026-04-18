@@ -1,7 +1,7 @@
 fastapi==0.111.0
 uvicorn[standard]==0.30.0
 sqlalchemy==2.0.30
-pywencai
+pywencai==0.13.1
 pandas==2.2.2
 # pandas-ta not available for Python 3.9; requires Python >=3.12 or manual install
 apscheduler==3.10.4
