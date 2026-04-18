@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date
 from backend.collectors.base import query_wencai, normalize_code
 from backend.database import upsert
@@ -6,63 +7,75 @@ from backend.models import DailyData
 
 logger = logging.getLogger(__name__)
 
-TECHNICAL_QUERY = (
-    "股票代码,最新价,"
-    "5日均线,13日均线,30日均线,"
-    "MACD的DIF值,MACD的DEA值,MACD,"
-    "RSI,"
-    "KDJ的K值,KDJ的D值,KDJ的J值,"
-    "布林线上轨,布林线中轨,布林线下轨,"
-    "量比"
-)
+QUERY = "收盘价 5日均线 13日均线 30日均线 macd的diff macd的dea macd的macd rsi的rsi1 kdj的k kdj的d kdj的j boll的upper boll的mid boll的lower 量比"
 
-FIELD_MAP = {
-    "close":      ["最新价", "收盘价"],
-    "ma5":        ["5日均线", "MA5"],
-    "ma13":       ["13日均线", "MA13"],
-    "ma30":       ["30日均线", "MA30"],
-    "macd_dif":   ["MACD的DIF值", "DIF"],
-    "macd_dea":   ["MACD的DEA值", "DEA"],
-    "macd_bar":   ["MACD", "MACD柱"],
-    "rsi14":      ["RSI", "RSI(14)"],
-    "kdj_k":      ["KDJ的K值", "K"],
-    "kdj_d":      ["KDJ的D值", "D"],
-    "kdj_j":      ["KDJ的J值", "J"],
-    "boll_upper": ["布林线上轨", "BOLL_UPPER"],
-    "boll_mid":   ["布林线中轨", "BOLL_MID"],
-    "boll_lower": ["布林线下轨", "BOLL_LOWER"],
-    "volume_ratio": ["量比"],
+# Regex patterns for fuzzy column matching (问财返回的列名带日期后缀如 [20260417])
+COL_PATTERNS = {
+    "close":        [r"收盘价", r"最新价"],
+    "ma5":          [r"5日均线"],
+    "ma13":         [r"13日均线"],
+    "ma30":         [r"30日均线"],
+    "macd_dif":     [r"macd.*diff", r"dif值"],
+    "macd_dea":     [r"macd.*dea", r"dea值"],
+    "macd_bar":     [r"macd\(macd", r"macd值"],
+    "rsi14":        [r"rsi.*rsi1", r"rsi\(14"],
+    "kdj_k":        [r"kdj.*k[值(]", r"kdj\(k"],
+    "kdj_d":        [r"kdj.*d[值(]", r"kdj\(d"],
+    "kdj_j":        [r"kdj.*j[值(]", r"kdj\(j"],
+    "boll_upper":   [r"boll.*upper"],
+    "boll_mid":     [r"boll.*mid"],
+    "boll_lower":   [r"boll.*lower"],
+    "volume_ratio": [r"量比"],
 }
 
-def _find_col(df, candidates: list[str]):
-    for c in candidates:
-        if c in df.columns:
-            return c
+
+def _match_col(columns: list[str], patterns: list[str]) -> str | None:
+    for col in columns:
+        col_lower = col.lower()
+        for pat in patterns:
+            if re.search(pat, col_lower):
+                return col
     return None
 
+
+def _build_col_map(columns: list[str]) -> dict[str, str]:
+    mapping = {}
+    for field, patterns in COL_PATTERNS.items():
+        col = _match_col(columns, patterns)
+        if col:
+            mapping[field] = col
+    return mapping
+
+
 def collect_technical(session, target_codes: set[str] = None):
-    """Collect technical indicators for all stocks via pywencai."""
     today = date.today().isoformat()
-    df = query_wencai(TECHNICAL_QUERY)
+    df = query_wencai(QUERY)
     if df.empty:
-        logger.warning("Technical query returned empty DataFrame")
+        logger.warning("Technical query returned empty")
         return 0
 
-    code_col = _find_col(df, ["股票代码", "代码", "code"])
+    code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
     if not code_col:
-        logger.error(f"Cannot find code column. Available: {df.columns.tolist()}")
+        logger.error(f"No code column. Columns: {df.columns.tolist()}")
         return 0
+
+    col_map = _build_col_map(df.columns.tolist())
+    logger.info(f"Technical col map: {col_map}")
 
     count = 0
+    seen = set()
     for _, row in df.iterrows():
         code = normalize_code(row[code_col])
+        if code in seen:
+            continue
+        seen.add(code)
         if target_codes and code not in target_codes:
             continue
         record = {"code": code, "date": today}
-        for field, candidates in FIELD_MAP.items():
-            col = _find_col(df, candidates)
+        for field, col in col_map.items():
             try:
-                record[field] = float(row[col]) if col and row.get(col) is not None else None
+                val = row.get(col)
+                record[field] = float(val) if val is not None else None
             except (TypeError, ValueError):
                 record[field] = None
         try:
