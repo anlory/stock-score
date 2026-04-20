@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 
-def _build_prompt(stock_name: str, stock_code: str, scores: dict) -> str:
+def _build_prompt(stock_name: str, stock_code: str, scores: dict, profile=None, trend_info=None) -> str:
     dims = {
         "technical": "技术面",
         "capital": "资金面",
@@ -21,7 +21,35 @@ def _build_prompt(stock_name: str, stock_code: str, scores: dict) -> str:
     }
     score_lines = "\n".join(f"- {label}：{scores.get(k, 'N/A')}分" for k, label in dims.items())
 
-    return f"""你是一位专业的A股分析师，请从以下五个维度对股票进行独立分析和评价。
+    profile_block = "（暂无公司资料）"
+    if profile:
+        parts = []
+        if profile.get("business"):
+            parts.append(f"主营业务：{profile['business']}")
+        if profile.get("industry"):
+            parts.append(f"所属行业：{profile['industry']}")
+        concepts = profile.get("concepts") or []
+        if concepts:
+            parts.append(f"概念板块：{', '.join(concepts)}")
+        if parts:
+            profile_block = "\n".join(parts)
+
+    trend_block = "（暂无近期走势数据）"
+    if trend_info:
+        lines = []
+        r5, r20, r60 = trend_info.get("return_5d"), trend_info.get("return_20d"), trend_info.get("return_60d")
+        if any(v is not None for v in (r5, r20, r60)):
+            lines.append(f"个股涨跌：近5日 {r5}%，近20日 {r20}%，近60日 {r60}%")
+        ic, ic5, ic20 = trend_info.get("industry_change"), trend_info.get("industry_change_5d"), trend_info.get("industry_change_20d")
+        if any(v is not None for v in (ic, ic5, ic20)):
+            lines.append(f"行业涨跌：今日 {ic}%，近5日 {ic5}%，近20日 {ic20}%")
+        tags = trend_info.get("pattern_tags") or []
+        if tags:
+            lines.append(f"技术形态：{', '.join(tags)}")
+        if lines:
+            trend_block = "\n".join(lines)
+
+    return f"""你是一位专业的A股分析师，请基于以下信息对股票出具结构化研判。
 
 股票：{stock_name}({stock_code})
 综合评分：{scores.get('total', 'N/A')}分（满分100）
@@ -29,12 +57,27 @@ def _build_prompt(stock_name: str, stock_code: str, scores: dict) -> str:
 各维度评分：
 {score_lines}
 
-请用中文分析，包含以下内容：
-1. 从技术面、资金面、基本面、消息面、市场热度五个维度分别评价该股当前状态（每维度1-2句）
-2. 整体多空判断及核心逻辑（1-2句）
-3. 操作建议：给出短线和趋势两个视角的具体建议（各1-2句）
+公司与板块：
+{profile_block}
 
-要求：基于各维度评分独立分析，不依赖具体指标数值，简洁有力，不超过300字。"""
+近期表现：
+{trend_block}
+
+请用中文 markdown 输出，严格按以下 4 段结构，每段用 `## 标题` 开头：
+
+## 公司概况
+一句话概括主营业务与所处行业地位。
+
+## 板块关联
+基于所属行业/概念，结合板块近期表现，分析板块强弱对个股的影响（2-3句）。
+
+## 近期走势
+结合 5/20/60 日涨跌与技术形态标签，判断当前走势位置（2-3句）。
+
+## 综合研判
+给出多空判断、核心逻辑，以及短线与趋势两个视角的操作建议。
+
+全文不超过 600 字，语言简洁有力，避免空话。"""
 
 
 @router.get("/{code}")
@@ -74,7 +117,35 @@ def analyze_stock(code: str, session: Session = Depends(get_session)):
         "heat": score.heat_score,
     }
 
-    prompt = _build_prompt(stock_name, code, scores)
+    profile_payload = None
+    if stock:
+        try:
+            import json as _json
+            concepts = _json.loads(stock.concepts or "[]")
+        except Exception:
+            concepts = []
+        profile_payload = {
+            "business": stock.business,
+            "industry": stock.industry,
+            "concepts": concepts,
+        }
+
+    trend_info_payload = None
+    if daily:
+        try:
+            import json as _json
+            pattern_tags = _json.loads(daily.pattern_tags or "[]")
+        except Exception:
+            pattern_tags = []
+        trend_info_payload = {
+            "return_5d": daily.return_5d, "return_20d": daily.return_20d, "return_60d": daily.return_60d,
+            "industry_change": daily.industry_change,
+            "industry_change_5d": daily.industry_change_5d,
+            "industry_change_20d": daily.industry_change_20d,
+            "pattern_tags": pattern_tags,
+        }
+
+    prompt = _build_prompt(stock_name, code, scores, profile_payload, trend_info_payload)
 
     last_err = None
     for attempt in range(3):
@@ -86,7 +157,7 @@ def analyze_stock(code: str, session: Session = Depends(get_session)):
                     "model": AI_MODEL,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
-                    "max_tokens": 4096,
+                    "max_tokens": 6144,
                 },
                 timeout=120,
             )
