@@ -17,12 +17,12 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, shallowRef, watch, onMounted } from 'vue'
 import ScoreTable from '../components/ScoreTable.vue'
 import { getLeaderboard } from '../api'
 
 const tab = ref('other')
-const rows = ref([])
+const rows = shallowRef([])
 const dataDate = ref('')
 
 const tabs = [

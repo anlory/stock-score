@@ -42,10 +42,10 @@ function render() {
         xAxisIndex: 0,
         yAxisIndex: 0,
         itemStyle: {
-          color: '#EF4444',
-          color0: '#22C55E',
-          borderColor: '#EF4444',
-          borderColor0: '#22C55E',
+          color: '#EF5350',
+          color0: '#26A69A',
+          borderColor: '#EF5350',
+          borderColor0: '#26A69A',
         },
       },
       {
@@ -57,7 +57,7 @@ function render() {
         itemStyle: {
           color: function(params) {
             const d = props.data[params.dataIndex]
-            return d && d.close >= d.open ? '#EF4444' : '#22C55E'
+            return d && d.close >= d.open ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)'
           },
         },
       },

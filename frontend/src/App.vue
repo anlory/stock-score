@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-950">
+  <div class="min-h-screen bg-gray-950 font-sans">
     <nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
       <span class="text-amber-400 font-mono font-bold text-lg cursor-default">A股评分系统</span>
       <router-link to="/" class="text-gray-300 hover:text-white transition-colors">排行榜</router-link>
@@ -43,3 +43,8 @@ async function poll() {
 onMounted(poll)
 onUnmounted(() => clearTimeout(timer))
 </script>
+
+<style>
+body { font-family: 'Fira Sans', system-ui, -apple-system, sans-serif; }
+.font-mono, table td, table th { font-family: 'Fira Code', ui-monospace, monospace; }
+</style>

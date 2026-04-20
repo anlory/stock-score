@@ -1,7 +1,19 @@
 <template>
   <div class="p-6 max-w-5xl mx-auto">
     <button @click="$router.back()" class="text-gray-400 hover:text-white mb-4 text-sm">← 返回</button>
-    <div v-if="!data" class="text-gray-600 text-center py-20">加载中...</div>
+    <div v-if="!data" class="space-y-4 py-6">
+      <div class="flex items-center gap-4">
+        <div class="h-8 w-40 rounded bg-gray-800 animate-pulse"></div>
+        <div class="h-5 w-20 rounded bg-gray-800 animate-pulse"></div>
+      </div>
+      <div class="h-28 rounded-lg bg-gray-800 animate-pulse"></div>
+      <div class="flex gap-6 flex-wrap">
+        <div class="w-[320px] h-[320px] rounded-lg bg-gray-800 animate-pulse"></div>
+        <div class="flex-1 space-y-3">
+          <div v-for="i in 5" :key="i" class="h-14 rounded-lg bg-gray-800 animate-pulse"></div>
+        </div>
+      </div>
+    </div>
     <template v-else>
       <div class="flex items-center gap-4 mb-6">
         <h1 class="text-2xl font-bold">{{ data.name }}</h1>
@@ -50,10 +62,8 @@
         </div>
       </div>
       <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mt-4">
-        <h2 class="text-sm text-gray-400 mb-3 font-semibold">日K线</h2>
-        <div v-if="klineLoading" class="text-gray-500 text-center py-10 text-sm">K线加载中...</div>
-        <div v-else-if="klineData.length"><KlineChart :data="klineData" /></div>
-        <div v-else class="text-gray-600 text-center py-10 text-sm">暂无K线数据</div>
+        <h2 class="text-sm text-gray-400 mb-3 font-semibold">K线图 · TradingView</h2>
+        <TradingViewChart :code="route.params.code" />
       </div>
     </template>
   </div>
@@ -64,8 +74,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import RadarChart from '../components/RadarChart.vue'
-import KlineChart from '../components/KlineChart.vue'
-import { getStockDetail, getKline, getAnalysis } from '../api'
+import TradingViewChart from '../components/TradingViewChart.vue'
+import { getStockDetail, getAnalysis } from '../api'
 
 // marked 对中文 **加粗** 识别不好，预处理为 <strong>
 function preprocessBold(text) {
@@ -74,8 +84,6 @@ function preprocessBold(text) {
 
 const route = useRoute()
 const data = ref(null)
-const klineData = ref([])
-const klineLoading = ref(false)
 const aiResult = ref('')
 const aiLoading = ref(false)
 const aiError = ref('')
@@ -108,11 +116,6 @@ async function load() {
   data.value = await getStockDetail(route.params.code)
   aiResult.value = ''
   aiError.value = ''
-  klineLoading.value = true
-  try {
-    klineData.value = await getKline(route.params.code, 60)
-  } catch { klineData.value = [] }
-  klineLoading.value = false
 }
 async function fetchAnalysis() {
   aiError.value = ''
