@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from backend.config import DATABASE_URL, ensure_dirs
@@ -8,8 +8,38 @@ ensure_dirs()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
+def _migrate_add_columns(eng, table: str, columns: list[tuple[str, str]]):
+    """SQLite-only: add columns that don't already exist. columns = [(name, sql_type), ...]."""
+    with eng.connect() as conn:
+        existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+        if not existing:
+            return
+        for name, sql_type in columns:
+            if name not in existing:
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}'))
+        conn.commit()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _migrate_add_columns(engine, "stocks", [
+        ("business", "TEXT"),
+        ("industry", "VARCHAR"),
+        ("concepts", "TEXT"),
+        ("total_share", "FLOAT"),
+        ("float_share", "FLOAT"),
+        ("list_date", "VARCHAR"),
+        ("profile_updated_at", "DATETIME"),
+    ])
+    _migrate_add_columns(engine, "daily_data", [
+        ("return_5d", "FLOAT"),
+        ("return_20d", "FLOAT"),
+        ("return_60d", "FLOAT"),
+        ("industry_change", "FLOAT"),
+        ("industry_change_5d", "FLOAT"),
+        ("industry_change_20d", "FLOAT"),
+        ("pattern_tags", "TEXT"),
+    ])
 
 def get_session():
     """FastAPI Depends generator - yields and auto-closes session."""

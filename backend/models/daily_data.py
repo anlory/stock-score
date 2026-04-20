@@ -42,3 +42,10 @@ class DailyData(Base):
     turnover_rate = Column(Float)
     consecutive_limit_up = Column(Integer, default=0)
     sector_heat_rank = Column(Integer)
+    return_5d = Column(Float)
+    return_20d = Column(Float)
+    return_60d = Column(Float)
+    industry_change = Column(Float)
+    industry_change_5d = Column(Float)
+    industry_change_20d = Column(Float)
+    pattern_tags = Column(Text, default="[]")      # JSON string
