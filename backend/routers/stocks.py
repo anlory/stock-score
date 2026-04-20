@@ -1,8 +1,10 @@
+import json
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from backend.database import get_session, upsert
 from backend.models import Stock
+from backend.collectors.profile import fetch_profile
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -34,3 +36,25 @@ def remove_from_watchlist(code: str, session: Session = Depends(get_session)):
     stock.is_watchlist = False
     session.commit()
     return {"ok": True}
+
+
+@router.get("/{code}/profile")
+def get_stock_profile(code: str, session: Session = Depends(get_session)):
+    code = code.zfill(6)
+    stock = fetch_profile(session, code)
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    try:
+        concepts = json.loads(stock.concepts or "[]")
+    except json.JSONDecodeError:
+        concepts = []
+    return {
+        "code": stock.code,
+        "name": stock.name,
+        "business": stock.business,
+        "industry": stock.industry,
+        "concepts": concepts,
+        "total_share": stock.total_share,
+        "float_share": stock.float_share,
+        "list_date": stock.list_date,
+    }
