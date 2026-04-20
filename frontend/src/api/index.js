@@ -31,3 +31,6 @@ export const getKline = (code, days = 60) =>
 
 export const getAnalysis = (code) =>
   api.get(`/analysis/${code}`).then(r => r.data)
+
+export const getStockProfile = (code) =>
+  api.get(`/stocks/${code}/profile`).then(r => r.data)
