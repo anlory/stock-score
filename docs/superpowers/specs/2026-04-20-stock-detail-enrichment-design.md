@@ -102,7 +102,7 @@ SQLAlchemy `create_all` 只处理不存在的表，对已存在表的新列无�
 
 路由：`backend/routers/scores.py::get_stock_detail`
 
-- 返回体新增 `trend` 字段：
+- 返回体新增 `trend_info` 字段（避免与现有 `trend` 策略分数冲突）：
   ```json
   "trend_info": {
     "return_5d": 3.2, "return_20d": -1.1, "return_60d": 12.5,
@@ -110,7 +110,6 @@ SQLAlchemy `create_all` 只处理不存在的表，对已存在表的新列无�
     "pattern_tags": ["MA5上穿MA13","放量上攻"]
   }
   ```
-- 字段名选 `trend_info` 以避免与现有 `trend`（策略分数）冲突
 
 ### 修改 `GET /api/analysis/{code}`
 
