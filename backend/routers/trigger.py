@@ -9,6 +9,7 @@ from backend.collectors.capital import collect_capital
 from backend.collectors.fundamental import collect_fundamental
 from backend.collectors.news import collect_news
 from backend.collectors.market_heat import collect_market_heat
+from backend.collectors.trend import collect_trend
 from backend.engine import ScoreEngine
 from backend.models import Stock
 
@@ -28,6 +29,7 @@ def _run_pipeline():
         collect_fundamental(session, codes)
         collect_news(session, codes)
         collect_market_heat(session, codes)
+        collect_trend(session, codes)
         engine = ScoreEngine()
         count = engine.run(session)
         _status["last_result"] = f"Scored {count} records"

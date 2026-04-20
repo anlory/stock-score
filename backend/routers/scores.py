@@ -1,3 +1,4 @@
+import json as _json
 from datetime import date, timedelta
 from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
@@ -85,6 +86,23 @@ def get_stock_detail(code: str, session: Session = Depends(get_session)):
     ).first()
     if not short and not trend:
         return {"error": "暂无评分数据"}
+
+    trend_info = None
+    if daily:
+        try:
+            pattern_tags = _json.loads(daily.pattern_tags or "[]")
+        except (ValueError, TypeError):
+            pattern_tags = []
+        trend_info = {
+            "return_5d": daily.return_5d,
+            "return_20d": daily.return_20d,
+            "return_60d": daily.return_60d,
+            "industry_change": daily.industry_change,
+            "industry_change_5d": daily.industry_change_5d,
+            "industry_change_20d": daily.industry_change_20d,
+            "pattern_tags": pattern_tags,
+        }
+
     return {
         "code": code,
         "name": stock.name if stock else code,
@@ -93,6 +111,7 @@ def get_stock_detail(code: str, session: Session = Depends(get_session)):
         "scores": _score_dict(trend) if trend else (_score_dict(short) if short else {}),
         "raw": {k: v for k, v in daily.__dict__.items() if not k.startswith("_")} if daily else {},
         "ai_analysis": daily.ai_analysis if daily else None,
+        "trend_info": trend_info,
     }
 
 @router.get("/{code}/history")
