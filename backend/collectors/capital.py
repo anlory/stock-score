@@ -1,91 +1,90 @@
+# backend/collectors/capital.py
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
-import httpx
+from datetime import date, timedelta
+
+from backend.collectors.tushare_client import get_pro, to_ts_code, to_ts_date
 from backend.database import upsert
 from backend.models import DailyData
 
 logger = logging.getLogger(__name__)
-
-_HEADERS = {"User-Agent": "Mozilla/5.0"}
-_FF_URL = "http://push2.eastmoney.com/api/qt/stock/fflow/kline/get"
 _MAX_WORKERS = 10
 
 
-def _secid(code: str) -> str:
-    if code.startswith(("6", "5", "9")):
-        return f"1.{code}"
-    if code.startswith(("4", "8")):
-        return f"0.{code}"
-    return f"0.{code}"
-
-
-def _fetch_one(code, today):
+def _fetch_5d_sum(pro, code: str, today_ts: str) -> float | None:
+    iso = f"{today_ts[:4]}-{today_ts[4:6]}-{today_ts[6:]}"
+    start_ts = to_ts_date((date.fromisoformat(iso) - timedelta(days=14)).isoformat())
     try:
-        secid = _secid(code)
-        params = {
-            "secid": secid,
-            "fields1": "f1,f2,f3,f4",
-            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
-            "klt": "101",
-            "lmt": "5",
-        }
-        r = httpx.get(_FF_URL, params=params, headers=_HEADERS, timeout=10, follow_redirects=True)
-        r.raise_for_status()
-        body = r.json()
-        klines = body.get("data", {}).get("klines", [])
-        if not klines:
+        df = pro.moneyflow(ts_code=to_ts_code(code), start_date=start_ts, end_date=today_ts,
+                           fields="ts_code,trade_date,net_mf_amount")
+        if df is None or df.empty:
             return None
-
-        last = klines[-1].split(",")
-        if len(last) < 6:
-            return None
-
-        record = {
-            "code": code, "date": today,
-            "main_inflow_today": _parse_float(last[1]),
-            "super_large_inflow": _parse_float(last[5]),
-        }
-
-        if len(klines) >= 3:
-            total = sum(_parse_float(k.split(",")[1]) for k in klines if len(k.split(",")) > 1)
-            record["main_inflow_5d"] = round(total, 2)
-
-        return record
+        df = df.sort_values("trade_date")
+        last5 = df.tail(5)["net_mf_amount"]
+        return round(float(last5.sum()), 2)
     except Exception as e:
-        logger.error(f"Capital failed for {code}: {e}")
+        logger.error(f"Capital 5d failed for {code}: {e}")
         return None
 
 
-def collect_capital(session, target_codes: set[str] = None):
+def collect_capital(session, target_codes: set[str] = None) -> int:
     today = date.today().isoformat()
-    codes = sorted(target_codes) if target_codes else []
-    if not codes:
+    today_ts = to_ts_date(today)
+
+    if not target_codes:
         return 0
 
-    results = []
+    pro = get_pro()
+
+    # Today's full-market moneyflow
+    today_df = pro.moneyflow(
+        trade_date=today_ts,
+        fields="ts_code,buy_lg_amount,buy_elg_amount,net_mf_amount"
+    )
+    today_map: dict[str, dict] = {}
+    if today_df is not None and not today_df.empty:
+        for _, row in today_df.iterrows():
+            code = row["ts_code"].split(".")[0]
+            if code in target_codes:
+                lg = _sf(row.get("buy_lg_amount"), 0.0)
+                elg = _sf(row.get("buy_elg_amount"), 0.0)
+                today_map[code] = {
+                    "main_inflow_today": round(lg + elg, 2),
+                    "super_large_inflow": elg,
+                }
+
+    # 5-day cumulative per stock (concurrent)
+    codes = sorted(target_codes)
+    five_d_map: dict[str, float] = {}
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
-        futures = {pool.submit(_fetch_one, code, today): code for code in codes}
+        futures = {pool.submit(_fetch_5d_sum, pro, code, today_ts): code for code in codes}
         for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
+            code = futures[future]
+            val = future.result()
+            if val is not None:
+                five_d_map[code] = val
 
     count = 0
-    for record in results:
+    for code in target_codes:
+        record: dict = {"code": code, "date": today}
+        record.update(today_map.get(code, {}))
+        if code in five_d_map:
+            record["main_inflow_5d"] = five_d_map[code]
         try:
             upsert(session, DailyData, record, ["code", "date"])
             count += 1
         except Exception as e:
-            logger.error(f"Capital upsert failed for {record.get('code')}: {e}")
+            logger.error(f"Capital upsert failed for {code}: {e}")
 
     session.commit()
     logger.info(f"Capital data collected: {count} stocks")
     return count
 
 
-def _parse_float(val: str):
+def _sf(val, default=None):
     try:
-        return round(float(val), 2)
+        import math
+        v = float(val)
+        return default if math.isnan(v) else round(v, 2)
     except (TypeError, ValueError):
-        return None
+        return default
