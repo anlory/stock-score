@@ -8,13 +8,12 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "sqlalchemy>=2.0.30",
     "pywencai>=0.13.1",
-    "akshare>=1.14.0",
+    "tushare>=1.2.89",
     "pandas>=2.2.0",
     "pandas-ta>=0.3.14b",
     "apscheduler>=3.10.0",
     "httpx>=0.27.0",
     "aiofiles>=23.0.0",
-    "efinance>=0.5.8",
 ]
 
 [dependency-groups]
