@@ -1,0 +1,91 @@
+<h2>导航栏布局方案</h2>
+<p class="subtitle">在现有"排行榜"和"历史趋势"旁新增一个"评分说明"标签页</p>
+
+<div class="mockup">
+  <div class="mockup-header">当前导航栏</div>
+  <div class="mockup-body">
+    <div class="mock-nav" style="display:flex;gap:24px;align-items:center;padding:12px 24px;background:#111827;">
+      <span style="color:#f59e0b;font-weight:bold;font-size:18px;">A股评分系统</span>
+      <span style="color:#60a5fa;">排行榜</span>
+      <span style="color:#9ca3af;">历史趋势</span>
+      <span style="margin-left:auto;color:#9ca3af;font-size:14px;">🔄 同步数据</span>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:24px;">
+  <div class="mockup-header">新增后导航栏</div>
+  <div class="mockup-body">
+    <div class="mock-nav" style="display:flex;gap:24px;align-items:center;padding:12px 24px;background:#111827;">
+      <span style="color:#f59e0b;font-weight:bold;font-size:18px;">A股评分系统</span>
+      <span style="color:#60a5fa;">排行榜</span>
+      <span style="color:#9ca3af;">历史趋势</span>
+      <span style="color:#9ca3af;border-bottom:2px solid transparent;padding-bottom:2px;">📋 评分说明</span>
+      <span style="margin-left:auto;color:#9ca3af;font-size:14px;">🔄 同步数据</span>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:32px;">评分说明页面的内容结构</h3>
+
+<div class="mockup">
+  <div class="mockup-header">页面布局预览</div>
+  <div class="mockup-body" style="background:#030712;padding:24px;">
+    <h3 style="color:#f59e0b;margin-bottom:20px;">评分体系说明</h3>
+
+    <!-- 维度部分 -->
+    <div style="margin-bottom:32px;">
+      <h4 style="color:#e5e7eb;margin-bottom:12px;border-bottom:1px solid #374151;padding-bottom:8px;">评分维度（满分各100分）</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="background:#111827;border-radius:8px;padding:16px;border-left:3px solid #60a5fa;">
+          <div style="color:#60a5fa;font-weight:bold;">技术面</div>
+          <div style="color:#9ca3af;font-size:14px;margin-top:4px;">MA趋势(30分) · MACD(25分) · RSI(20分) · KDJ(15分) · BOLL(10分)</div>
+        </div>
+        <div style="background:#111827;border-radius:8px;padding:16px;border-left:3px solid #f59e0b;">
+          <div style="color:#f59e0b;font-weight:bold;">资金面</div>
+          <div style="color:#9ca3af;font-size:14px;margin-top:4px;">主力流入 · 超大单净流入 · 北向资金 · 融资净买入</div>
+        </div>
+        <div style="background:#111827;border-radius:8px;padding:16px;border-left:3px solid #34d399;">
+          <div style="color:#34d399;font-weight:bold;">基本面</div>
+          <div style="color:#9ca3af;font-size:14px;margin-top:4px;">PE市盈率 · PB市净率 · ROE · 净利润增速 · 市值 · 研报</div>
+        </div>
+        <div style="background:#111827;border-radius:8px;padding:16px;border-left:3px solid #a78bfa;">
+          <div style="color:#a78bfa;font-weight:bold;">消息面</div>
+          <div style="color:#9ca3af;font-size:14px;margin-top:4px;">新闻情绪评分 · 公告类型 · 研报评级</div>
+        </div>
+        <div style="background:#111827;border-radius:8px;padding:16px;border-left:3px solid #fb923c;">
+          <div style="color:#fb923c;font-weight:bold;">市场热度</div>
+          <div style="color:#9ca3af;font-size:14px;margin-top:4px;">涨跌幅 · 换手率 · 量比 · 连板天数 · 板块热度</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 策略部分 -->
+    <div>
+      <h4 style="color:#e5e7eb;margin-bottom:12px;border-bottom:1px solid #374151;padding-bottom:8px;">评分策略（维度权重组合）</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div style="background:#111827;border-radius:8px;padding:16px;">
+          <div style="color:#f59e0b;font-weight:bold;font-size:15px;">短线策略</div>
+          <div style="color:#9ca3af;font-size:13px;margin-top:8px;">
+            技术35% · 资金25% · 热度30%<br>消息10% · 基本面0%
+          </div>
+          <div style="color:#6b7280;font-size:12px;margin-top:6px;">侧重短期技术信号和资金动向</div>
+        </div>
+        <div style="background:#111827;border-radius:8px;padding:16px;">
+          <div style="color:#60a5fa;font-weight:bold;font-size:15px;">趋势策略</div>
+          <div style="color:#9ca3af;font-size:13px;margin-top:8px;">
+            技术40% · 资金30% · 热度20%<br>消息5% · 基本面5%
+          </div>
+          <div style="color:#6b7280;font-size:12px;margin-top:6px;">侧重中短期趋势延续性</div>
+        </div>
+        <div style="background:#111827;border-radius:8px;padding:16px;">
+          <div style="color:#34d399;font-weight:bold;font-size:15px;">价值策略</div>
+          <div style="color:#9ca3af;font-size:13px;margin-top:8px;">
+            基本面50% · 技术20% · 资金15%<br>消息10% · 热度5%
+          </div>
+          <div style="color:#6b7280;font-size:12px;margin-top:6px;">侧重基本面和价值投资</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

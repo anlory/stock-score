@@ -1,0 +1,98 @@
+<h2>方案：排行榜标题旁的"说明"按钮</h2>
+<p class="subtitle">点击后弹出说明面板，覆盖在表格上方</p>
+
+<div class="mockup">
+  <div class="mockup-header">收起状态 - 按钮在标题右侧</div>
+  <div class="mockup-body" style="background:#030712;padding:16px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <h2 style="color:#e5e7eb;margin:0;font-size:20px;">排行榜</h2>
+      <span style="color:#6b7280;font-size:14px;">2026-04-24</span>
+      <button style="margin-left:auto;background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:6px;padding:4px 12px;font-size:13px;cursor:pointer;">? 评分说明</button>
+    </div>
+    <div style="background:#111827;border-radius:8px;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;color:#9ca3af;">
+        <tr style="border-bottom:1px solid #1f2937;">
+          <th style="padding:10px;text-align:left;">排名</th>
+          <th style="padding:10px;text-align:left;">股票</th>
+          <th style="padding:10px;">短线</th>
+          <th style="padding:10px;">趋势</th>
+          <th style="padding:10px;">技术面</th>
+          <th style="padding:10px;">资金面</th>
+          <th style="padding:10px;">基本面</th>
+          <th style="padding:10px;">消息面</th>
+          <th style="padding:10px;">热度</th>
+        </tr>
+        <tr><td style="padding:10px;">1</td><td style="color:#e5e7eb;">浦发银行</td><td style="text-align:center;">85.5</td><td style="text-align:center;">78.2</td><td style="text-align:center;">82.0</td><td style="text-align:center;">75.0</td><td style="text-align:center;">65.0</td><td style="text-align:center;">90.0</td><td style="text-align:center;">70.0</td></tr>
+        <tr style="background:#0d1117;"><td style="padding:10px;">2</td><td style="color:#e5e7eb;">中信证券</td><td style="text-align:center;">80.1</td><td style="text-align:center;">76.5</td><td style="text-align:center;">78.0</td><td style="text-align:center;">72.0</td><td style="text-align:center;">60.0</td><td style="text-align:center;">85.0</td><td style="text-align:center;">68.0</td></tr>
+        <tr><td style="padding:10px;">3</td><td style="color:#e5e7eb;">招商银行</td><td style="text-align:center;">78.3</td><td style="text-align:center;">74.1</td><td style="text-align:center;">75.0</td><td style="text-align:center;">70.0</td><td style="text-align:center;">68.0</td><td style="text-align:center;">82.0</td><td style="text-align:center;">65.0</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:24px;">
+  <div class="mockup-header">展开状态 - 面板从按钮下方滑出</div>
+  <div class="mockup-body" style="background:#030712;padding:16px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <h2 style="color:#e5e7eb;margin:0;font-size:20px;">排行榜</h2>
+      <span style="color:#6b7280;font-size:14px;">2026-04-24</span>
+      <button style="margin-left:auto;background:#1f2937;color:#60a5fa;border:1px solid #60a5fa;border-radius:6px;padding:4px 12px;font-size:13px;">? 评分说明 ▲</button>
+    </div>
+
+    <div style="background:#111827;border:1px solid #1f2937;border-radius:10px;padding:20px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="color:#f59e0b;margin:0;font-size:16px;">评分维度</h3>
+        <span style="color:#6b7280;font-size:12px;">各维度满分100，按策略权重加权得到总分</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:10px;">
+        <div style="background:#0d1117;border-radius:6px;padding:12px;border-top:2px solid #60a5fa;">
+          <div style="color:#60a5fa;font-weight:bold;font-size:13px;">技术面</div>
+          <div style="color:#6b7280;font-size:11px;margin-top:4px;line-height:1.5;">MA趋势 30分<br>MACD 25分<br>RSI 20分<br>KDJ 15分<br>BOLL 10分</div>
+        </div>
+        <div style="background:#0d1117;border-radius:6px;padding:12px;border-top:2px solid #f59e0b;">
+          <div style="color:#f59e0b;font-weight:bold;font-size:13px;">资金面</div>
+          <div style="color:#6b7280;font-size:11px;margin-top:4px;line-height:1.5;">主力净流入<br>超大单净流入<br>北向资金<br>融资净买入</div>
+        </div>
+        <div style="background:#0d1117;border-radius:6px;padding:12px;border-top:2px solid #34d399;">
+          <div style="color:#34d399;font-weight:bold;font-size:13px;">基本面</div>
+          <div style="color:#6b7280;font-size:11px;margin-top:4px;line-height:1.5;">PE市盈率<br>PB市净率<br>ROE净资产收益率<br>净利润增速</div>
+        </div>
+        <div style="background:#0d1117;border-radius:6px;padding:12px;border-top:2px solid #a78bfa;">
+          <div style="color:#a78bfa;font-weight:bold;font-size:13px;">消息面</div>
+          <div style="color:#6b7280;font-size:11px;margin-top:4px;line-height:1.5;">新闻情绪评分<br>公告类型<br>研报评级</div>
+        </div>
+        <div style="background:#0d1117;border-radius:6px;padding:12px;border-top:2px solid #fb923c;">
+          <div style="color:#fb923c;font-weight:bold;font-size:13px;">市场热度</div>
+          <div style="color:#6b7280;font-size:11px;margin-top:4px;line-height:1.5;">涨跌幅<br>换手率<br>量比<br>连板天数</div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;border-top:1px solid #1f2937;padding-top:16px;">
+        <h3 style="color:#f59e0b;margin:0 0 10px;font-size:16px;">评分策略</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div style="background:#0d1117;border-radius:6px;padding:10px;">
+            <div style="color:#f59e0b;font-size:13px;font-weight:bold;">短线策略</div>
+            <div style="color:#6b7280;font-size:11px;margin-top:4px;">技术35% · 资金25% · 热度30% · 消息10%</div>
+          </div>
+          <div style="background:#0d1117;border-radius:6px;padding:10px;">
+            <div style="color:#60a5fa;font-size:13px;font-weight:bold;">趋势策略</div>
+            <div style="color:#6b7280;font-size:11px;margin-top:4px;">技术40% · 资金30% · 热度20% · 消息5% · 基本面5%</div>
+          </div>
+          <div style="background:#0d1117;border-radius:6px;padding:10px;">
+            <div style="color:#34d399;font-size:13px;font-weight:bold;">价值策略</div>
+            <div style="color:#6b7280;font-size:11px;margin-top:4px;">基本面50% · 技术20% · 资金15% · 消息10%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#111827;border-radius:8px;overflow:hidden;opacity:0.3;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;color:#9ca3af;">
+        <tr style="border-bottom:1px solid #1f2937;">
+          <th style="padding:10px;text-align:left;">排名</th><th style="padding:10px;text-align:left;">股票</th><th style="padding:10px;">短线</th><th style="padding:10px;">趋势</th>
+        </tr>
+        <tr><td style="padding:10px;">...</td><td>...</td><td>...</td><td>...</td></tr>
+      </table>
+    </div>
+  </div>
+</div>

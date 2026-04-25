@@ -10,11 +10,23 @@
       <div class="h-20 rounded-lg bg-gray-800 animate-pulse"></div>
       <div class="h-20 rounded-lg bg-gray-800 animate-pulse"></div>
     </div>
+    <template v-else-if="data?.error && !collectLoading">
+      <div class="text-center py-16">
+        <p class="text-gray-400 mb-2">该股票暂无评分数据</p>
+      </div>
+    </template>
+    <template v-else-if="collectLoading">
+      <div class="text-center py-16">
+        <p class="text-gray-400 animate-pulse">正在采集数据并评分，请稍候...</p>
+      </div>
+    </template>
     <template v-else>
       <div class="flex items-center gap-4 mb-6">
         <h1 class="text-2xl font-bold">{{ data.name }}</h1>
         <span class="font-mono text-gray-400">{{ data.code }}</span>
-        <div class="ml-auto flex gap-3">
+        <div class="ml-auto flex items-center gap-3">
+          <button v-if="isWatchlist" @click="removeWatch" class="text-xs border border-gray-600 text-gray-400 px-3 py-1 rounded hover:text-red-400 hover:border-red-400 transition-colors">已加自选</button>
+          <button v-else @click="addWatch" class="text-xs border border-amber-600 text-amber-400 px-3 py-1 rounded hover:bg-amber-900/30 transition-colors">+ 自选</button>
           <span v-if="data.short_term" class="bg-amber-900/40 text-amber-300 border border-amber-800/40 px-3 py-1 rounded-full font-mono font-bold text-lg">
             短线 {{ data.short_term.total }} 分
           </span>
@@ -44,8 +56,12 @@
           </div>
           <div class="text-xs text-gray-500 flex gap-4 flex-wrap">
             <span v-if="profile.list_date">上市：{{ profile.list_date }}</span>
+            <span v-if="profile.total_mv">总市值：{{ profile.total_mv }} 亿</span>
+            <span v-if="profile.float_mv">流通市值：{{ profile.float_mv }} 亿</span>
             <span v-if="profile.total_share">总股本：{{ profile.total_share }} 亿</span>
             <span v-if="profile.float_share">流通股本：{{ profile.float_share }} 亿</span>
+            <span v-if="profile.pe">PE：{{ profile.pe }}</span>
+            <span v-if="profile.pb">PB：{{ profile.pb }}</span>
           </div>
         </div>
         <div v-else class="text-gray-600 text-xs py-2">暂无公司资料</div>
@@ -140,7 +156,7 @@ import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import RadarChart from '../components/RadarChart.vue'
 import TradingViewChart from '../components/TradingViewChart.vue'
-import { getStockDetail, getStockProfile, getAnalysis } from '../api'
+import { getStockDetail, getStockProfile, getAnalysis, addWatchlist, removeWatchlist, checkWatchlist, collectSingle } from '../api'
 
 function preprocessBold(text) {
   return text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -154,6 +170,8 @@ const aiLoading = ref(false)
 const aiError = ref('')
 const showFullBiz = ref(false)
 const showRaw = ref(false)
+const isWatchlist = ref(false)
+const collectLoading = ref(false)
 
 const trendInfo = computed(() => data.value?.trend_info || null)
 const displayAnalysis = computed(() => {
@@ -195,14 +213,33 @@ function fmtPct(v) {
 }
 
 async function load() {
-  const [detail, prof] = await Promise.allSettled([
-    getStockDetail(route.params.code),
-    getStockProfile(route.params.code),
+  const code = route.params.code
+  const [detail, prof, watched] = await Promise.allSettled([
+    getStockDetail(code),
+    getStockProfile(code),
+    checkWatchlist(code),
   ])
   if (detail.status === 'fulfilled') data.value = detail.value
   if (prof.status === 'fulfilled') profile.value = prof.value
+  if (watched.status === 'fulfilled') isWatchlist.value = watched.value
   aiResult.value = ''
   aiError.value = ''
+  // No score data → trigger single stock collection then reload
+  if (data.value?.error) {
+    collectLoading.value = true
+    await collectSingle(code)
+    const redetail = await getStockDetail(code).catch(() => null)
+    if (redetail) data.value = redetail
+    collectLoading.value = false
+  }
+}
+async function addWatch() {
+  await addWatchlist(route.params.code, data.value?.name || '')
+  isWatchlist.value = true
+}
+async function removeWatch() {
+  await removeWatchlist(route.params.code)
+  isWatchlist.value = false
 }
 async function fetchAnalysis() {
   aiError.value = ''

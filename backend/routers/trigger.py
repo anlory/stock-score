@@ -13,6 +13,7 @@ from backend.collectors.market_heat import collect_market_heat
 from backend.collectors.trend import collect_trend
 from backend.engine import ScoreEngine
 from backend.models import Stock
+from backend.services import collect_single
 
 router = APIRouter(prefix="/api/trigger", tags=["trigger"])
 logger = logging.getLogger(__name__)
@@ -76,6 +77,7 @@ def _run_pipeline():
         _status["running"] = False
         _status["last_run"] = datetime.now().isoformat()
 
+
 @router.post("/collect")
 def trigger_collect():
     if _status["running"]:
@@ -83,6 +85,12 @@ def trigger_collect():
     thread = threading.Thread(target=_run_pipeline, daemon=True)
     thread.start()
     return {"status": "started"}
+
+
+@router.post("/collect/{code}")
+def collect_single_endpoint(code: str):
+    return collect_single(code)
+
 
 @router.get("/status")
 def get_status():

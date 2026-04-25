@@ -1,0 +1,5 @@
+{"type":"server-started","port":56894,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:56894","screen_dir":"/Users/anlory/Project/stock_score/.superpowers/brainstorm/98340-1777036859/content","state_dir":"/Users/anlory/Project/stock_score/.superpowers/brainstorm/98340-1777036859/state"}
+{"type":"screen-added","file":"/Users/anlory/Project/stock_score/.superpowers/brainstorm/98340-1777036859/content/nav-layout.html"}
+{"type":"screen-added","file":"/Users/anlory/Project/stock_score/.superpowers/brainstorm/98340-1777036859/content/header-btn-v2.html"}
+{"type":"screen-added","file":"/Users/anlory/Project/stock_score/.superpowers/brainstorm/98340-1777036859/content/waiting.html"}
+{"type":"server-stopped","reason":"owner process exited"}

@@ -4,19 +4,8 @@ from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
 from backend.database import get_session
 from backend.models import Score, Stock, DailyData
-from backend.collectors.tencent_kline import fetch_kline
 
 router = APIRouter(prefix="/api/scores", tags=["scores"])
-
-
-@router.get("/kline/{code}")
-def get_kline(code: str, days: int = Query(60, ge=7, le=365)):
-    """Get daily K-line data for a stock via Tencent Finance API."""
-    code = code.zfill(6)
-    try:
-        return fetch_kline(code, days)
-    except Exception:
-        return []
 
 def _latest_date(session):
     row = session.query(Score).order_by(Score.date.desc()).first()

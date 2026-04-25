@@ -35,23 +35,73 @@
         </div>
       </div>
     </div>
-    <ScoreTable :rows="rows" :tab="tab" @added="load" />
+    <!-- 搜索面板 -->
+    <div v-if="tab === 'search'" class="mb-4">
+      <div class="relative max-w-md">
+        <input v-model="searchQuery" @keyup.enter="onSearch" placeholder="输入股票代码，按 Enter 搜索"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+          :disabled="searchLoading" />
+        <div v-if="searchLoading" class="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-500 text-center">
+          搜索中...
+        </div>
+        <div v-else-if="searchResults.length" class="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg overflow-hidden">
+          <button v-for="s in searchResults" :key="s.code"
+            @click="goDetail(s.code)"
+            class="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-700 transition-colors text-left">
+            <span class="font-mono text-gray-300">{{ s.code }}</span>
+            <span class="text-white">{{ s.name }}</span>
+            <span class="ml-auto text-xs text-gray-500">{{ s.market }}</span>
+          </button>
+        </div>
+        <div v-else-if="searchQuery && searchDone" class="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-500 text-center">
+          未找到匹配的股票
+        </div>
+      </div>
+    </div>
+    <!-- 行业板块 -->
+    <div v-else-if="tab === 'industries'" class="space-y-2">
+      <div v-if="!industries.length" class="text-gray-600 text-sm text-center py-8">加载中...</div>
+      <div v-for="(item, idx) in industries" :key="item.name"
+        class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 flex items-center gap-4">
+        <span class="text-gray-500 text-xs w-6 text-right">{{ idx + 1 }}</span>
+        <span class="text-sm text-white font-medium w-24">{{ item.name }}</span>
+        <span class="font-mono text-sm font-semibold" :class="item.change_pct > 0 ? 'text-red-400' : item.change_pct < 0 ? 'text-green-400' : 'text-gray-400'">
+          {{ item.change_pct > 0 ? '+' : '' }}{{ item.change_pct.toFixed(2) }}%
+        </span>
+        <span class="text-xs text-gray-500">{{ item.count }}只</span>
+        <span class="text-xs text-gray-500 ml-auto">
+          领涨 <span class="text-gray-300">{{ item.leading_name }}</span>
+          <span class="font-mono ml-1" :class="item.leading_pct > 0 ? 'text-red-400' : 'text-green-400'">{{ item.leading_pct > 0 ? '+' : '' }}{{ item.leading_pct.toFixed(2) }}%</span>
+        </span>
+      </div>
+    </div>
+    <ScoreTable v-else-if="tab !== 'search'" :rows="rows" :tab="tab" @added="load" />
   </div>
 </template>
 
 <script setup>
 import { ref, shallowRef, watch, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import ScoreTable from '../components/ScoreTable.vue'
-import { getLeaderboard } from '../api'
+import { getLeaderboard, searchStocks, getIndustries } from '../api'
 
 const tab = ref('other')
 const rows = shallowRef([])
 const dataDate = ref('')
 const showGuide = ref(false)
+const router = useRouter()
+
+const searchQuery = ref('')
+const searchResults = ref([])
+const searchLoading = ref(false)
+const searchDone = ref(false)
+const industries = ref([])
 
 const tabs = [
   { value: 'other', label: '热门' },
   { value: 'watchlist', label: '自选股' },
+  { value: 'industries', label: '行业' },
+  { value: 'search', label: '搜索' },
 ]
 
 const dimensions = [
@@ -69,10 +119,35 @@ const strategies = [
 ]
 
 async function load() {
+  if (tab.value === 'search') return
+  if (tab.value === 'industries') {
+    if (!industries.value.length) industries.value = await getIndustries()
+    return
+  }
   const res = await getLeaderboard(tab.value)
   dataDate.value = res.date || ''
   rows.value = res.stocks || res || []
 }
+
+async function onSearch() {
+  const q = searchQuery.value.trim()
+  if (!q) { searchResults.value = []; searchDone.value = false; return }
+  searchLoading.value = true
+  searchDone.value = false
+  try {
+    searchResults.value = await searchStocks(q)
+  } catch { searchResults.value = [] }
+  searchLoading.value = false
+  searchDone.value = true
+}
+
+function goDetail(code) {
+  searchQuery.value = ''
+  searchResults.value = []
+  searchDone.value = false
+  router.push('/stock/' + code)
+}
+
 watch(tab, load)
 onMounted(load)
 </script>

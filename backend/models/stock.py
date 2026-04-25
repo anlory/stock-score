@@ -19,6 +19,11 @@ class Stock(Base):
     total_share = Column(Float)                    # 亿股
     float_share = Column(Float)                    # 亿股
     list_date = Column(String)                     # YYYY-MM-DD
+    # --- quote fields (from Tencent) ---
+    total_mv = Column(Float)                       # 总市值(亿)
+    float_mv = Column(Float)                       # 流通市值(亿)
+    pe = Column(Float)                             # 市盈率
+    pb = Column(Float)                             # 市净率
     profile_updated_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

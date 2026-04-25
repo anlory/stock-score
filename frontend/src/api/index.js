@@ -26,11 +26,20 @@ export const triggerCollect = () =>
 export const getCollectStatus = () =>
   api.get('/trigger/status').then(r => r.data)
 
-export const getKline = (code, days = 60) =>
-  api.get(`/scores/kline/${code}`, { params: { days } }).then(r => r.data)
-
 export const getAnalysis = (code) =>
   api.get(`/analysis/${code}`).then(r => r.data)
 
 export const getStockProfile = (code) =>
   api.get(`/stocks/${code}/profile`).then(r => r.data)
+
+export const searchStocks = (q) =>
+  api.get('/stocks/search', { params: { q } }).then(r => r.data)
+
+export const checkWatchlist = (code) =>
+  api.get(`/stocks/watchlist/${code}/check`).then(r => r.data.is_watchlist)
+
+export const collectSingle = (code) =>
+  api.post(`/trigger/collect/${code}`).then(r => r.data)
+
+export const getIndustries = () =>
+  api.get('/stocks/industries').then(r => r.data)

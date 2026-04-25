@@ -5,7 +5,12 @@ from backend.config import DATABASE_URL, ensure_dirs
 from backend.models import Base
 
 ensure_dirs()
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
+
+# Enable WAL mode for better concurrent write performance
+with engine.connect() as conn:
+    conn.execute(text("PRAGMA journal_mode=WAL"))
+    conn.execute(text("PRAGMA busy_timeout=30000"))
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 def _migrate_add_columns(eng, table: str, columns: list[tuple[str, str]]):
@@ -29,6 +34,10 @@ def init_db():
         ("total_share", "FLOAT"),
         ("float_share", "FLOAT"),
         ("list_date", "VARCHAR"),
+        ("total_mv", "FLOAT"),
+        ("float_mv", "FLOAT"),
+        ("pe", "FLOAT"),
+        ("pb", "FLOAT"),
         ("profile_updated_at", "DATETIME"),
     ])
     _migrate_add_columns(engine, "daily_data", [
