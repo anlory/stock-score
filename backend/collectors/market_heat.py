@@ -1,76 +1,99 @@
 import logging
-import re
-from datetime import date
-from backend.collectors.base import query_wencai, normalize_code
+from datetime import date, timedelta
+from backend.collectors.tushare_client import get_pro, to_ts_date
 from backend.database import upsert
 from backend.models import DailyData
 
 logger = logging.getLogger(__name__)
 
-QUERY = "涨跌幅 换手率 量比 连续涨停天数"
 
-COL_PATTERNS = {
-    "change_pct":           [r"涨跌幅"],
-    "turnover_rate":        [r"换手率"],
-    "volume_ratio":         [r"量比"],
-    "consecutive_limit_up": [r"连续涨停", r"连板"],
-}
-
-
-def _build_col_map(columns):
-    mapping = {}
-    for field, patterns in COL_PATTERNS.items():
-        for col in columns:
-            if any(re.search(p, col) for p in patterns):
-                mapping[field] = col
-                break
-    return mapping
+def _get_recent_trade_dates(pro, today_ts: str, n: int = 10) -> list[str]:
+    y, m, d = today_ts[:4], today_ts[4:6], today_ts[6:]
+    iso = f"{y}-{m}-{d}"
+    start_ts = to_ts_date((date.fromisoformat(iso) - timedelta(days=20)).isoformat())
+    cal = pro.trade_cal(start_date=start_ts, end_date=today_ts, is_open="1")
+    if cal is None or cal.empty:
+        return [today_ts]
+    dates = sorted(cal["cal_date"].tolist())
+    return dates[-n:]
 
 
-def collect_market_heat(session, target_codes: set[str] = None):
-    today = date.today().isoformat()
-    codes = sorted(target_codes) if target_codes else []
-    if not codes:
+def collect_market_heat(session, target_codes: set[str] = None) -> int:
+    today = date.today()
+    today_str = today.isoformat()
+    today_ts = to_ts_date(today_str)
+
+    if not target_codes:
         return 0
 
-    count = 0
-    for i in range(0, len(codes), 50):
-        batch = codes[i:i+50]
-        codes_str = " ".join(batch)
-        df = query_wencai(f"{codes_str} 涨跌幅 换手率 量比 连续涨停天数")
-        if df.empty:
-            continue
+    pro = get_pro()
 
-        code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
-        if not code_col:
-            continue
+    # change_pct from daily
+    daily_df = pro.daily(trade_date=today_ts, fields="ts_code,pct_chg,vol")
+    daily_map: dict[str, float] = {}
+    if daily_df is not None and not daily_df.empty:
+        for _, row in daily_df.iterrows():
+            code = row["ts_code"].split(".")[0]
+            if code in target_codes:
+                daily_map[code] = _sf(row.get("pct_chg"))
 
-        col_map = _build_col_map(df.columns.tolist())
-        seen = set()
-        for _, row in df.iterrows():
-            code = normalize_code(row[code_col])
-            if code in seen or code not in target_codes:
-                continue
-            seen.add(code)
-            record = {"code": code, "date": today}
-            for field, col in col_map.items():
-                val = row.get(col)
-                if field == "consecutive_limit_up":
-                    try:
-                        record[field] = int(val) if val is not None else 0
-                    except (TypeError, ValueError):
-                        record[field] = 0
-                else:
-                    try:
-                        record[field] = float(val) if val is not None else None
-                    except (TypeError, ValueError):
-                        record[field] = None
-            try:
-                upsert(session, DailyData, record, ["code", "date"])
+    # turnover_rate, volume_ratio from daily_basic
+    basic_df = pro.daily_basic(trade_date=today_ts, fields="ts_code,turnover_rate,volume_ratio")
+    basic_map: dict[str, dict] = {}
+    if basic_df is not None and not basic_df.empty:
+        for _, row in basic_df.iterrows():
+            code = row["ts_code"].split(".")[0]
+            if code in target_codes:
+                basic_map[code] = {
+                    "turnover_rate": _sf(row.get("turnover_rate")),
+                    "volume_ratio": _sf(row.get("volume_ratio")),
+                }
+
+    # consecutive_limit_up: query last 10 trading days
+    trade_dates = _get_recent_trade_dates(pro, today_ts, n=10)
+    limit_sets: list[set[str]] = []
+    for td in reversed(trade_dates):  # newest first
+        try:
+            df = pro.limit_list_d(trade_date=td, fields="ts_code,trade_date")
+            if df is not None and not df.empty:
+                limit_sets.append(set(r.split(".")[0] for r in df["ts_code"].tolist()))
+            else:
+                limit_sets.append(set())
+        except Exception as e:
+            logger.warning(f"limit_list_d failed for {td}: {e}")
+            limit_sets.append(set())
+
+    def _consecutive(code: str) -> int:
+        count = 0
+        for s in limit_sets:
+            if code in s:
                 count += 1
-            except Exception as e:
-                logger.error(f"Heat upsert failed for {code}: {e}")
+            else:
+                break
+        return count
+
+    count = 0
+    for code in target_codes:
+        record: dict = {"code": code, "date": today_str}
+        if code in daily_map:
+            record["change_pct"] = daily_map[code]
+        record.update(basic_map.get(code, {}))
+        record["consecutive_limit_up"] = _consecutive(code)
+        try:
+            upsert(session, DailyData, record, ["code", "date"])
+            count += 1
+        except Exception as e:
+            logger.error(f"Heat upsert failed for {code}: {e}")
 
     session.commit()
     logger.info(f"Market heat data collected: {count} stocks")
     return count
+
+
+def _sf(val, default=None):
+    try:
+        import math
+        v = float(val)
+        return None if math.isnan(v) else round(v, 4)
+    except (TypeError, ValueError):
+        return default
