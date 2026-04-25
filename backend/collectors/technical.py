@@ -1,25 +1,29 @@
+# backend/collectors/technical.py
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, timedelta
+
 import pandas as pd
 import pandas_ta as ta
+
+from backend.collectors.tushare_client import get_pro, to_ts_code, to_ts_date
 from backend.database import upsert
 from backend.models import DailyData
-from backend.collectors.tencent_kline import fetch_kline
 
 logger = logging.getLogger(__name__)
-
 _MAX_WORKERS = 10
 
 
-def _process_one(code, today):
+def _process_one(code: str, today: str) -> dict | None:
     try:
-        rows = fetch_kline(code, days=90)
-        if len(rows) < 15:
+        pro = get_pro()
+        start = to_ts_date((date.fromisoformat(today) - timedelta(days=130)).isoformat())
+        df = pro.daily(ts_code=to_ts_code(code), start_date=start, end_date=to_ts_date(today))
+        if df is None or len(df) < 15:
             return None
 
-        df = pd.DataFrame(rows)
-        df["date_dt"] = pd.to_datetime(df["date"])
+        df = df.sort_values("trade_date").reset_index(drop=True)
+        df = df.rename(columns={"vol": "volume"})
 
         df.ta.sma(length=5, append=True)
         df.ta.sma(length=13, append=True)
@@ -34,6 +38,7 @@ def _process_one(code, today):
 
         last = df.iloc[-1]
         prev = df.iloc[-2] if len(df) >= 2 else last
+
         return {
             "code": code,
             "date": today,
@@ -61,7 +66,7 @@ def _process_one(code, today):
         return None
 
 
-def collect_technical(session, target_codes: set[str] = None):
+def collect_technical(session, target_codes: set[str] = None) -> int:
     today = date.today().isoformat()
     codes = sorted(target_codes) if target_codes else []
     if not codes:
