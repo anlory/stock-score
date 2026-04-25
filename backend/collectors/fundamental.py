@@ -1,71 +1,84 @@
+# backend/collectors/fundamental.py
 import logging
-import re
 from datetime import date
-from backend.collectors.base import query_wencai, normalize_code
+from backend.collectors.tushare_client import get_pro, to_ts_code, to_ts_date
 from backend.database import upsert
 from backend.models import DailyData
 
 logger = logging.getLogger(__name__)
 
-QUERY = "市盈率 市净率 ROE 净利润同比增长率 总市值"
 
-COL_PATTERNS = {
-    "pe":                [r"市盈率"],
-    "pb":                [r"市净率"],
-    "roe":               [r"roe"],
-    "profit_growth_yoy": [r"净利润同比"],
-    "market_cap":        [r"总市值"],
-}
-
-
-def _build_col_map(columns):
-    mapping = {}
-    for field, patterns in COL_PATTERNS.items():
-        for col in columns:
-            if any(re.search(p, col.lower()) for p in patterns):
-                mapping[field] = col
-                break
-    return mapping
+def _latest_fina_period(year: int, month: int) -> str:
+    if month <= 4:
+        return f"{year - 1}0930"
+    if month <= 8:
+        return f"{year - 1}1231"
+    if month <= 10:
+        return f"{year}0630"
+    return f"{year}0930"
 
 
-def collect_fundamental(session, target_codes: set[str] = None):
-    today = date.today().isoformat()
-    codes = sorted(target_codes) if target_codes else []
-    if not codes:
+def collect_fundamental(session, target_codes: set[str] = None) -> int:
+    today = date.today()
+    today_str = today.isoformat()
+    today_ts = to_ts_date(today_str)
+    period = _latest_fina_period(today.year, today.month)
+
+    if not target_codes:
         return 0
 
-    count = 0
-    # 分批查询，每批50个股票
-    for i in range(0, len(codes), 50):
-        batch = codes[i:i+50]
-        codes_str = " ".join(batch)
-        df = query_wencai(f"{codes_str} 市盈率 市净率 ROE 净利润同比增长率 总市值")
-        if df.empty:
-            continue
+    pro = get_pro()
 
-        code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
-        if not code_col:
-            continue
+    # PE / PB / market_cap from daily_basic (full market, one call)
+    basic_df = pro.daily_basic(trade_date=today_ts, fields="ts_code,pe_ttm,pb,total_mv")
+    basic_map: dict[str, dict] = {}
+    if basic_df is not None and not basic_df.empty:
+        for _, row in basic_df.iterrows():
+            code = row["ts_code"].split(".")[0]
+            if code in target_codes:
+                basic_map[code] = {
+                    "pe": _safe_float(row.get("pe_ttm")),
+                    "pb": _safe_float(row.get("pb")),
+                    "market_cap": round(_safe_float(row.get("total_mv"), 0) / 10000, 4),
+                }
 
-        col_map = _build_col_map(df.columns.tolist())
-        seen = set()
-        for _, row in df.iterrows():
-            code = normalize_code(row[code_col])
-            if code in seen or code not in target_codes:
+    # ROE / profit_growth_yoy from fina_indicator (per stock, tushare only accepts single ts_code)
+    fina_map: dict[str, dict] = {}
+    for code in sorted(target_codes):
+        try:
+            df = pro.fina_indicator(ts_code=to_ts_code(code), period=period, fields="ts_code,roe,netprofit_yoy")
+            if df is None or df.empty:
                 continue
-            seen.add(code)
-            record = {"code": code, "date": today}
-            for field, col in col_map.items():
-                try:
-                    record[field] = float(row[col]) if row.get(col) is not None else None
-                except (TypeError, ValueError):
-                    record[field] = None
-            try:
-                upsert(session, DailyData, record, ["code", "date"])
-                count += 1
-            except Exception as e:
-                logger.error(f"Fundamental upsert failed for {code}: {e}")
+            row = df.iloc[0]
+            fina_map[code] = {
+                "roe": _safe_float(row.get("roe")),
+                "profit_growth_yoy": _safe_float(row.get("netprofit_yoy")),
+            }
+        except Exception as e:
+            logger.error(f"fina_indicator failed for {code}: {e}")
+
+    count = 0
+    for code in target_codes:
+        record: dict = {"code": code, "date": today_str}
+        record.update(basic_map.get(code, {}))
+        record.update(fina_map.get(code, {}))
+        if len(record) <= 2:
+            continue
+        try:
+            upsert(session, DailyData, record, ["code", "date"])
+            count += 1
+        except Exception as e:
+            logger.error(f"Fundamental upsert failed for {code}: {e}")
 
     session.commit()
     logger.info(f"Fundamental data collected: {count} stocks")
     return count
+
+
+def _safe_float(val, default=None):
+    try:
+        import math
+        v = float(val)
+        return None if math.isnan(v) else round(v, 4)
+    except (TypeError, ValueError):
+        return default
