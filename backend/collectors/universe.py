@@ -1,98 +1,132 @@
 import json
 import logging
-from backend.collectors.base import query_wencai, normalize_code
+from datetime import date
+from backend.collectors.tushare_client import get_pro, to_ts_date
+from backend.collectors import tushare_client
 from backend.database import upsert
 from backend.models import Stock
 
 logger = logging.getLogger(__name__)
 
+
 def _get_market(code: str) -> str:
-    """Determine market from stock code prefix."""
     if code.startswith(("6", "5", "9")):
         return "SH"
     if code.startswith(("4", "8")):
         return "BJ"
     return "SZ"
 
-def get_hot_sector_stocks() -> list[str]:
-    """Get stocks from top 10 hot sectors today via pywencai."""
-    df = query_wencai("涨幅最大的10个行业板块", query_type="plate")
-    if df.empty:
-        logger.warning("Hot sector query returned empty")
-        return []
 
-    sector_col = next((c for c in df.columns if "板块" in c or "行业" in c or "名称" in c), None)
-    if not sector_col:
-        logger.warning(f"Cannot find sector column in: {df.columns.tolist()}")
-        return []
+def _normalize(ts_code: str) -> str:
+    return ts_code.split(".")[0]
 
-    sectors = df[sector_col].dropna().tolist()[:10]
-    codes = []
-    for sector in sectors:
-        sector_df = query_wencai(f"{sector} 涨幅最大的5只股票 股票代码")
-        if sector_df.empty:
-            continue
-        code_col = next((c for c in sector_df.columns if "代码" in c), None)
-        if code_col:
-            top5 = sector_df[code_col].dropna().tolist()[:5]
-            codes.extend([normalize_code(c) for c in top5])
 
-    return list(set(codes))
+def sync_universe(session, watchlist_codes: list[str] = None) -> int:
+    pro = get_pro()
+    today_ts = to_ts_date(date.today().isoformat())
 
-def sync_universe(session, watchlist_codes: list[str] = None):
-    """Sync full stock universe (index + hot sectors + watchlist) to DB."""
-    # 1. 指数成分股
+    # 1. Full stock basic info (name, industry)
+    basic_df = pro.stock_basic(
+        exchange="", list_status="L",
+        fields="ts_code,name,industry,market"
+    )
+    basic_info: dict[str, dict] = {}
+    if basic_df is not None and not basic_df.empty:
+        for _, row in basic_df.iterrows():
+            code = _normalize(row["ts_code"])
+            basic_info[code] = {
+                "name": str(row.get("name") or code),
+                "industry": str(row.get("industry") or ""),
+            }
+
+    # 2. THS industry index list → fill INDUSTRY_TS_CODE_MAP
+    ths_df = pro.ths_index(exchange="A", type="N")
+    if ths_df is not None and not ths_df.empty:
+        for _, row in ths_df.iterrows():
+            name = str(row.get("name") or "")
+            ts_code = str(row.get("ts_code") or "")
+            if name and ts_code:
+                tushare_client.INDUSTRY_TS_CODE_MAP[name] = ts_code
+
+    # 3. Index components
     index_map = {
-        "沪深300成分股 股票代码 股票简称": "hs300",
-        "中证500成分股 股票代码 股票简称": "zz500",
-        "创业板指成分股 股票代码 股票简称": "cyb",
+        "000300.SH": "hs300",
+        "000905.SH": "zz500",
+        "399006.SZ": "cyb",
     }
     index_stocks: dict[str, dict] = {}
-    for query, tag in index_map.items():
-        df = query_wencai(query)
-        if df.empty:
-            continue
-        code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
-        name_col = next((c for c in df.columns if "简称" in c or "名称" in c), None)
-        if not code_col:
-            continue
-        for _, row in df.iterrows():
-            code = normalize_code(row[code_col])
-            name = str(row[name_col]) if name_col else code
-            if code not in index_stocks:
-                index_stocks[code] = {"name": name, "tags": []}
-            index_stocks[code]["tags"].append(tag)
+    for idx_code, tag in index_map.items():
+        try:
+            df = pro.index_member(index_code=idx_code, fields="con_code,con_name")
+            if df is None or df.empty:
+                continue
+            for _, row in df.iterrows():
+                code = _normalize(str(row.get("con_code") or ""))
+                if not code:
+                    continue
+                if code not in index_stocks:
+                    info = basic_info.get(code, {})
+                    index_stocks[code] = {
+                        "name": str(row.get("con_name") or info.get("name") or code),
+                        "industry": info.get("industry", ""),
+                        "tags": [],
+                    }
+                index_stocks[code]["tags"].append(tag)
+        except Exception as e:
+            logger.error(f"index_member failed for {idx_code}: {e}")
 
     for code, info in index_stocks.items():
-        market = _get_market(code)
         upsert(session, Stock, {
-            "code": code, "name": info["name"], "market": market,
+            "code": code, "name": info["name"], "market": _get_market(code),
+            "industry": info["industry"],
             "is_watchlist": False, "index_tags": json.dumps(info["tags"]),
         }, ["code"])
 
-    # 2. 热门板块
-    hot_codes = get_hot_sector_stocks()
-    for code in hot_codes:
-        existing = session.get(Stock, code)
-        if not existing:
-            market = _get_market(code)
-            upsert(session, Stock, {
-                "code": code, "name": code, "market": market,
-                "is_watchlist": False, "index_tags": "[]",
-            }, ["code"])
+    # 4. Hot sector stocks
+    try:
+        heat_df = pro.ths_daily(trade_date=today_ts)
+        if heat_df is not None and not heat_df.empty and "pct_change" in heat_df.columns:
+            top10 = heat_df.nlargest(10, "pct_change")["ts_code"].tolist()
+            for ths_ts_code in top10:
+                try:
+                    member_df = pro.ths_member(ts_code=ths_ts_code)
+                    if member_df is None or member_df.empty:
+                        continue
+                    for _, row in member_df.head(5).iterrows():
+                        code = str(row.get("code") or "").zfill(6)
+                        if not code or code == "000000":
+                            continue
+                        if not session.get(Stock, code):
+                            info = basic_info.get(code, {})
+                            upsert(session, Stock, {
+                                "code": code,
+                                "name": info.get("name", code),
+                                "market": _get_market(code),
+                                "industry": info.get("industry", ""),
+                                "is_watchlist": False,
+                                "index_tags": "[]",
+                            }, ["code"])
+                except Exception as e:
+                    logger.warning(f"ths_member failed for {ths_ts_code}: {e}")
+    except Exception as e:
+        logger.warning(f"ths_daily failed: {e}")
 
-    # 3. 自选股
+    # 5. Watchlist
     if watchlist_codes:
         for raw_code in watchlist_codes:
-            code = normalize_code(raw_code)
-            market = _get_market(code)
+            code = raw_code.zfill(6)
             existing = session.get(Stock, code)
             if existing:
                 existing.is_watchlist = True
             else:
+                info = basic_info.get(code, {})
                 upsert(session, Stock, {
-                    "code": code, "name": code, "market": market,
-                    "is_watchlist": True, "index_tags": "[]",
+                    "code": code,
+                    "name": info.get("name", code),
+                    "market": _get_market(code),
+                    "industry": info.get("industry", ""),
+                    "is_watchlist": True,
+                    "index_tags": "[]",
                 }, ["code"])
 
     session.commit()
