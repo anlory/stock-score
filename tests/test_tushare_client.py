@@ -9,6 +9,9 @@ def test_to_ts_code_sz():
 def test_to_ts_code_bj():
     assert to_ts_code("430047") == "430047.BJ"
 
+def test_to_ts_code_sh_prefix_5():
+    assert to_ts_code("501010") == "501010.SH"
+
 def test_from_ts_code():
     assert from_ts_code("000001.SZ") == "000001"
     assert from_ts_code("600519.SH") == "600519"
