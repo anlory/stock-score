@@ -2,19 +2,18 @@ import json
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date as _date
+from datetime import date as _date, timedelta
 from sqlalchemy.orm import Session
-from backend.models import Stock, DailyData
+
+from backend.collectors.tushare_client import get_pro, to_ts_code, to_ts_date, INDUSTRY_TS_CODE_MAP
 from backend.database import upsert
-from backend.collectors.tencent_kline import fetch_kline
+from backend.models import Stock, DailyData
 
 logger = logging.getLogger(__name__)
-
 _MAX_WORKERS = 10
 
 
 def _compute_returns(closes: list[float]) -> dict:
-    """Given chronological closes (oldest first), compute 5/20/60-day pct changes."""
     out = {"return_5d": None, "return_20d": None, "return_60d": None}
     if not closes:
         return out
@@ -46,54 +45,64 @@ def _detect_patterns(d: dict, prev_macd_dif, prev_macd_dea) -> list[str]:
     return tags
 
 
-def _fetch_industry_changes(industry: str) -> dict:
-    """Return {change, change_5d, change_20d} for the given industry board."""
-    if not industry:
-        return {"change": None, "change_5d": None, "change_20d": None}
+def _fetch_closes(code: str, today: str) -> list[float]:
+    pro = get_pro()
+    start = to_ts_date((_date.fromisoformat(today) - timedelta(days=95)).isoformat())
     try:
-        import akshare as ak
-        df = ak.stock_board_industry_hist_em(symbol=industry, period="daily", adjust="")
+        df = pro.daily(ts_code=to_ts_code(code), start_date=start, end_date=to_ts_date(today),
+                       fields="ts_code,trade_date,close")
+        if df is None or df.empty:
+            return []
+        return df.sort_values("trade_date")["close"].astype(float).tolist()
+    except Exception as e:
+        logger.warning(f"trend kline failed for {code}: {e}")
+        return []
+
+
+def _fetch_industry_changes(industry: str, today: str) -> dict:
+    null = {"change": None, "change_5d": None, "change_20d": None}
+    if not industry:
+        return null
+    ts_code = INDUSTRY_TS_CODE_MAP.get(industry)
+    if not ts_code:
+        return null
+    pro = get_pro()
+    start = to_ts_date((_date.fromisoformat(today) - timedelta(days=35)).isoformat())
+    try:
+        df = pro.ths_daily(ts_code=ts_code, start_date=start, end_date=to_ts_date(today),
+                           fields="ts_code,trade_date,close")
         if df is None or df.empty or len(df) < 2:
-            return {"change": None, "change_5d": None, "change_20d": None}
-        closes = df["收盘"].astype(float).tolist() if "收盘" in df.columns else []
-        if not closes:
-            return {"change": None, "change_5d": None, "change_20d": None}
-        today = closes[-1]
+            return null
+        closes = df.sort_values("trade_date")["close"].astype(float).tolist()
+        today_c = closes[-1]
         def _chg(n):
-            return round((today - closes[-n-1]) / closes[-n-1] * 100, 2) if len(closes) > n and closes[-n-1] else None
+            return round((today_c - closes[-n - 1]) / closes[-n - 1] * 100, 2) if len(closes) > n and closes[-n - 1] else None
         return {"change": _chg(1), "change_5d": _chg(5), "change_20d": _chg(20)}
     except Exception as e:
-        logger.warning(f"industry hist failed for {industry}: {e}")
-        return {"change": None, "change_5d": None, "change_20d": None}
+        logger.warning(f"ths_daily failed for {industry}: {e}")
+        return null
 
 
 class _IndustryCache:
-    """Thread-safe industry change cache."""
-    def __init__(self):
+    def __init__(self, today: str):
         self._cache: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self._today = today
 
     def get(self, industry: str) -> dict:
         if not industry:
             return {"change": None, "change_5d": None, "change_20d": None}
         with self._lock:
             if industry not in self._cache:
-                self._cache[industry] = _fetch_industry_changes(industry)
+                self._cache[industry] = _fetch_industry_changes(industry, self._today)
             return self._cache[industry]
 
 
 def _process_one(code, today, daily_dict, industry, industry_cache):
-    try:
-        kline = fetch_kline(code, days=65)
-        closes = [float(row["close"]) for row in kline]
-    except Exception as e:
-        logger.warning(f"kline failed for {code}: {e}")
-        closes = []
-
+    closes = _fetch_closes(code, today)
     returns = _compute_returns(closes)
     ichanges = industry_cache.get(industry)
     tags = _detect_patterns(daily_dict, daily_dict.get("macd_dif"), daily_dict.get("macd_dea"))
-
     return {
         "code": code, "date": today,
         **returns,
@@ -105,14 +114,11 @@ def _process_one(code, today, daily_dict, industry, industry_cache):
 
 
 def collect_trend(session: Session, target_codes: set[str], today: str | None = None) -> int:
-    """Populate trend fields on DailyData for the given codes. Returns count written."""
     today = today or _date.today().isoformat()
-
     stocks = {s.code: s for s in session.query(Stock).filter(Stock.code.in_(target_codes))}
     dailies = session.query(DailyData).filter(DailyData.date == today, DailyData.code.in_(target_codes)).all()
     daily_map = {d.code: d for d in dailies}
-
-    industry_cache = _IndustryCache()
+    industry_cache = _IndustryCache(today)
 
     tasks = []
     for code in target_codes:

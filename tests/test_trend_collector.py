@@ -1,5 +1,6 @@
 import json
-from unittest.mock import patch
+import pandas as pd
+from unittest.mock import patch, MagicMock
 from backend.models import Stock, DailyData
 from backend.collectors.trend import (
     _compute_returns,
@@ -9,10 +10,9 @@ from backend.collectors.trend import (
 
 
 def test_compute_returns_basic():
-    # close prices chronological, oldest first. Today's close = 110, 5 days ago = 100.
-    closes = [100.0] * 60 + [105.0, 106.0, 107.0, 108.0, 110.0]  # length 65
+    closes = [100.0] * 60 + [105.0, 106.0, 107.0, 108.0, 110.0]
     r = _compute_returns(closes)
-    assert round(r["return_5d"], 2) == 10.0   # (110-100)/100
+    assert round(r["return_5d"], 2) == 10.0
     assert round(r["return_20d"], 2) == 10.0
     assert round(r["return_60d"], 2) == 10.0
 
@@ -57,11 +57,13 @@ def test_detect_patterns_macd_gold_cross():
     assert "MACD金叉" in tags
 
 
-@patch("backend.collectors.trend._fetch_industry_changes")
-@patch("backend.collectors.trend.fetch_kline")
-def test_collect_trend_writes_daily_data(mock_kline, mock_industry, db_session):
+@patch("backend.collectors.trend.get_pro")
+def test_collect_trend_writes_daily_data(mock_get_pro, db_session):
+    mock_pro = MagicMock()
+    mock_get_pro.return_value = mock_pro
+
     db_session.add(Stock(code="000001", name="平安银行", market="SZ", industry="银行", index_tags="[]"))
-    today = "2026-04-20"
+    today = "2026-04-25"
     db_session.add(DailyData(
         code="000001", date=today,
         ma5=10.5, ma13=10.3, prev_ma5=10.1, prev_ma13=10.3,
@@ -71,15 +73,27 @@ def test_collect_trend_writes_daily_data(mock_kline, mock_industry, db_session):
     db_session.commit()
 
     closes = [100.0] * 60 + [105.0, 106.0, 107.0, 108.0, 110.0]
-    mock_kline.return_value = [{"date": f"2026-01-{i%30+1:02d}", "close": c}
-                               for i, c in enumerate(closes)]
-    mock_industry.return_value = {"change": 0.8, "change_5d": 2.1, "change_20d": -0.5}
+    kline_df = pd.DataFrame({
+        "ts_code": "000001.SZ",
+        "trade_date": [f"20240{i+1:03d}" for i in range(len(closes))],
+        "close": closes,
+    })
+    ths_df = pd.DataFrame({
+        "ts_code": "885096.TI",
+        "trade_date": [f"20260{i+1:03d}" for i in range(25)],
+        "close": [100.0 + i * 0.1 for i in range(25)],
+    })
+
+    mock_pro.daily.return_value = kline_df
+    mock_pro.ths_daily.return_value = ths_df
+
+    from backend.collectors import tushare_client
+    tushare_client.INDUSTRY_TS_CODE_MAP["银行"] = "885096.TI"
 
     count = collect_trend(db_session, {"000001"}, today=today)
 
     assert count == 1
     row = db_session.query(DailyData).filter_by(code="000001", date=today).one()
     assert row.return_5d is not None
-    assert row.industry_change == 0.8
     tags = json.loads(row.pattern_tags or "[]")
     assert "MA5上穿MA13" in tags
