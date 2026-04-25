@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+import pandas as pd
 from backend.models import Stock
 from backend.collectors.profile import fetch_profile
 
@@ -12,10 +13,10 @@ def _seed_stock(session, code="000001", **kw):
     session.commit()
 
 
-@patch("backend.collectors.profile._fetch_individual_info")
-@patch("backend.collectors.profile._fetch_business")
 @patch("backend.collectors.profile._fetch_concepts")
-def test_fetch_profile_populates_all_fields(mock_concepts, mock_business, mock_info, db_session):
+@patch("backend.collectors.profile._fetch_business")
+@patch("backend.collectors.profile._fetch_individual_info")
+def test_fetch_profile_populates_all_fields(mock_info, mock_business, mock_concepts, db_session):
     _seed_stock(db_session)
     mock_info.return_value = {
         "industry": "银行",
@@ -45,21 +46,17 @@ def test_fetch_profile_cache_hit_skips_api(mock_info, db_session):
         business="cached",
         profile_updated_at=datetime.now() - timedelta(days=5),
     )
-
     stock = fetch_profile(db_session, "000001")
-
     assert stock.business == "cached"
     mock_info.assert_not_called()
 
 
-@patch("backend.collectors.profile._fetch_individual_info")
-@patch("backend.collectors.profile._fetch_business")
 @patch("backend.collectors.profile._fetch_concepts")
-def test_fetch_profile_expired_cache_refetches(mock_concepts, mock_business, mock_info, db_session):
+@patch("backend.collectors.profile._fetch_business")
+@patch("backend.collectors.profile._fetch_individual_info")
+def test_fetch_profile_expired_cache_refetches(mock_info, mock_business, mock_concepts, db_session):
     _seed_stock(
-        db_session,
-        industry="银行",
-        business="stale",
+        db_session, industry="银行", business="stale",
         profile_updated_at=datetime.now() - timedelta(days=40),
     )
     mock_info.return_value = {"industry": "银行", "total_share": 1.0, "float_share": 1.0, "list_date": "1991-04-03"}

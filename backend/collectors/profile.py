@@ -1,78 +1,101 @@
 import json
 import logging
+import threading
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+
+from backend.collectors.tushare_client import get_pro, to_ts_code
 from backend.models import Stock
 
 logger = logging.getLogger(__name__)
-
 CACHE_TTL_DAYS = 30
 
-
-def _fetch_individual_info(code: str) -> dict:
-    """Return {industry, total_share, float_share, list_date} from akshare."""
-    import akshare as ak
-    df = ak.stock_individual_info_em(symbol=code)
-    kv = dict(zip(df["item"], df["value"]))
-    def _to_float(v):
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
-    list_date = kv.get("上市时间")
-    if list_date and len(str(list_date)) == 8:
-        s = str(list_date)
-        list_date = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-
-    total = _to_float(kv.get("总股本"))
-    floatv = _to_float(kv.get("流通股"))
-    return {
-        "industry": kv.get("行业"),
-        "total_share": round(total / 1e8, 4) if total else None,
-        "float_share": round(floatv / 1e8, 4) if floatv else None,
-        "list_date": list_date,
-    }
+_concept_map: dict[str, list[str]] = {}
+_concept_map_lock = threading.Lock()
+_concept_map_built = False
 
 
-def _fetch_business(code: str) -> str | None:
-    """Return a short business description (<=200 chars) via akshare."""
-    import akshare as ak
+def _build_concept_map():
+    global _concept_map_built
+    pro = get_pro()
     try:
-        df = ak.stock_zyjs_ths(symbol=code)
+        concepts_df = pro.concept()
+        if concepts_df is None or concepts_df.empty:
+            return
+        result: dict[str, list[str]] = {}
+        for _, row in concepts_df.iterrows():
+            cid = str(row.get("code") or "")
+            cname = str(row.get("name") or "")
+            if not cid:
+                continue
+            try:
+                detail = pro.concept_detail(id=cid, fields="ts_code,name")
+                if detail is None or detail.empty:
+                    continue
+                for _, drow in detail.iterrows():
+                    ts = str(drow.get("ts_code") or "")
+                    if ts:
+                        result.setdefault(ts, []).append(cname)
+            except Exception:
+                pass
+        with _concept_map_lock:
+            _concept_map.update(result)
+            _concept_map_built = True
+    except Exception as e:
+        logger.warning(f"concept map build failed: {e}")
+
+
+def _ensure_concept_map():
+    global _concept_map_built
+    if not _concept_map_built:
+        t = threading.Thread(target=_build_concept_map, daemon=True)
+        t.start()
+
+
+def _fetch_individual_info(code: str) -> dict | None:
+    pro = get_pro()
+    ts_code = to_ts_code(code)
+    try:
+        df = pro.stock_basic(
+            ts_code=ts_code, list_status="L",
+            fields="ts_code,name,industry,list_date,total_share,float_share"
+        )
         if df is None or df.empty:
             return None
-        for col in ("主营业务", "产品名称", "经营范围"):
-            if col in df.columns:
-                val = df[col].iloc[0]
-                if val:
-                    s = str(val).strip()
-                    return s[:200]
-        return None
+        row = df.iloc[0]
+        total_share = _sf(row.get("total_share"))
+        float_share = _sf(row.get("float_share"))
+        list_date_raw = str(row.get("list_date") or "")
+        list_date = f"{list_date_raw[:4]}-{list_date_raw[4:6]}-{list_date_raw[6:]}" if len(list_date_raw) == 8 else None
+        return {
+            "industry": str(row.get("industry") or ""),
+            "total_share": round(total_share / 10000, 4) if total_share else None,
+            "float_share": round(float_share / 10000, 4) if float_share else None,
+            "list_date": list_date,
+        }
     except Exception as e:
-        logger.warning(f"business fetch failed for {code}: {e}")
+        logger.warning(f"stock_basic failed for {code}: {e}")
+        return None
+
+
+def _fetch_business(session: Session, code: str) -> str | None:
+    pro = get_pro()
+    ts_code = to_ts_code(code)
+    try:
+        df = pro.stock_company(ts_code=ts_code, fields="ts_code,business_scope")
+        if df is None or df.empty:
+            return None
+        return str(df.iloc[0].get("business_scope") or "")[:200] or None
+    except Exception as e:
+        logger.warning(f"stock_company failed for {code}: {e}")
         return None
 
 
 def _fetch_concepts(code: str) -> list[str]:
-    """Return list of concept board names via pywencai; empty on failure."""
-    try:
-        from backend.collectors.base import query_wencai
-        df = query_wencai(f"{code} 所属概念板块")
-        if df is None or df.empty:
-            return []
-        for col in df.columns:
-            if "概念" in col or "板块" in col:
-                raw = df[col].iloc[0]
-                if isinstance(raw, str):
-                    parts = [p.strip() for p in raw.replace("，", ",").split(",") if p.strip()]
-                    return parts[:10]
-                if isinstance(raw, list):
-                    return [str(x) for x in raw[:10]]
-        return []
-    except Exception as e:
-        logger.warning(f"concepts fetch failed for {code}: {e}")
-        return []
+    _ensure_concept_map()
+    ts_code = to_ts_code(code)
+    with _concept_map_lock:
+        return _concept_map.get(ts_code, [])[:10]
 
 
 def _cache_valid(stock: Stock) -> bool:
@@ -82,7 +105,6 @@ def _cache_valid(stock: Stock) -> bool:
 
 
 def fetch_profile(session: Session, code: str) -> Stock | None:
-    """Return Stock with profile fields populated. Uses 30-day cache."""
     code = code.zfill(6)
     stock = session.get(Stock, code)
     if not stock:
@@ -92,24 +114,36 @@ def fetch_profile(session: Session, code: str) -> Stock | None:
 
     try:
         info = _fetch_individual_info(code)
-        business = _fetch_business(code)
-        concepts = _fetch_concepts(code)
     except Exception as e:
-        logger.error(f"profile fetch failed for {code}: {e}")
+        logger.warning(f"profile fetch failed for {code}: {e}")
         return stock
 
-    if info.get("industry") is not None:
-        stock.industry = info["industry"]
-    if info.get("total_share") is not None:
-        stock.total_share = info["total_share"]
-    if info.get("float_share") is not None:
-        stock.float_share = info["float_share"]
-    if info.get("list_date") is not None:
-        stock.list_date = info["list_date"]
-    if business:
-        stock.business = business
+    concepts = _fetch_concepts(code)
+    business = _fetch_business(session, code)
+
+    if info:
+        if info.get("total_share") is not None:
+            stock.total_share = info["total_share"]
+        if info.get("float_share") is not None:
+            stock.float_share = info["float_share"]
+        if info.get("industry"):
+            stock.industry = info["industry"]
+        if info.get("list_date"):
+            stock.list_date = info["list_date"]
     if concepts:
         stock.concepts = json.dumps(concepts, ensure_ascii=False)
+    if business:
+        stock.business = business
+
     stock.profile_updated_at = datetime.now()
     session.commit()
     return stock
+
+
+def _sf(val):
+    try:
+        import math
+        v = float(val)
+        return None if math.isnan(v) else v
+    except (TypeError, ValueError):
+        return None
