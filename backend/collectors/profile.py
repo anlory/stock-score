@@ -1,62 +1,19 @@
 import json
 import logging
-import threading
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from backend.collectors.tushare_client import get_pro, to_ts_code
+from backend.collectors.tushare_client import get_pro, to_ts_code, ts_call
 from backend.models import Stock
 
 logger = logging.getLogger(__name__)
 CACHE_TTL_DAYS = 30
 
-_concept_map: dict[str, list[str]] = {}
-_concept_map_lock = threading.Lock()
-_concept_map_built = False
-
-
-def _build_concept_map():
-    global _concept_map_built
-    pro = get_pro()
-    try:
-        concepts_df = pro.concept()
-        if concepts_df is None or concepts_df.empty:
-            return
-        result: dict[str, list[str]] = {}
-        for _, row in concepts_df.iterrows():
-            cid = str(row.get("code") or "")
-            cname = str(row.get("name") or "")
-            if not cid:
-                continue
-            try:
-                detail = pro.concept_detail(id=cid, fields="ts_code,name")
-                if detail is None or detail.empty:
-                    continue
-                for _, drow in detail.iterrows():
-                    ts = str(drow.get("ts_code") or "")
-                    if ts:
-                        result.setdefault(ts, []).append(cname)
-            except Exception:
-                pass
-        with _concept_map_lock:
-            _concept_map.update(result)
-            _concept_map_built = True
-    except Exception as e:
-        logger.warning(f"concept map build failed: {e}")
-
-
-def _ensure_concept_map():
-    global _concept_map_built
-    if not _concept_map_built:
-        t = threading.Thread(target=_build_concept_map, daemon=True)
-        t.start()
-
-
 def _fetch_individual_info(code: str) -> dict | None:
     pro = get_pro()
     ts_code = to_ts_code(code)
     try:
-        df = pro.stock_basic(
+        df = ts_call(pro.stock_basic,
             ts_code=ts_code, list_status="L",
             fields="ts_code,name,industry,list_date,total_share,float_share"
         )
@@ -78,24 +35,45 @@ def _fetch_individual_info(code: str) -> dict | None:
         return None
 
 
-def _fetch_business(session: Session, code: str) -> str | None:
+def _fetch_company_info(code: str) -> dict | None:
     pro = get_pro()
     ts_code = to_ts_code(code)
     try:
-        df = pro.stock_company(ts_code=ts_code, fields="ts_code,business_scope")
+        df = ts_call(pro.stock_company, ts_code=ts_code)
         if df is None or df.empty:
             return None
-        return str(df.iloc[0].get("business_scope") or "")[:200] or None
+        row = df.iloc[0]
+        setup_raw = str(row.get("setup_date") or "")
+        return {
+            "chairman": str(row.get("chairman") or ""),
+            "manager": str(row.get("manager") or ""),
+            "setup_date": f"{setup_raw[:4]}-{setup_raw[4:6]}-{setup_raw[6:]}" if len(setup_raw) == 8 else None,
+            "province": str(row.get("province") or ""),
+            "city": str(row.get("city") or ""),
+            "introduction": str(row.get("introduction") or "")[:500] or None,
+            "main_business": str(row.get("main_business") or "")[:300] or None,
+            "business": str(row.get("business_scope") or "")[:300] or None,
+            "website": str(row.get("website") or ""),
+            "employees": _sf(row.get("employees")),
+            "office": str(row.get("office") or ""),
+        }
     except Exception as e:
         logger.warning(f"stock_company failed for {code}: {e}")
         return None
 
 
 def _fetch_concepts(code: str) -> list[str]:
-    _ensure_concept_map()
+    pro = get_pro()
     ts_code = to_ts_code(code)
-    with _concept_map_lock:
-        return _concept_map.get(ts_code, [])[:10]
+    try:
+        df = ts_call(pro.concept_detail, ts_code=ts_code)
+        if df is None or df.empty:
+            return []
+        skip = {"融资融券", "转融券标的", "融资标的股", "融券标的股", "标普道琼斯A股", "MSCI概念", "深股通", "沪股通", "优先股概念"}
+        return [str(r) for r in df["concept_name"] if str(r) not in skip][:10]
+    except Exception as e:
+        logger.warning(f"concept fetch failed for {code}: {e}")
+        return []
 
 
 def _cache_valid(stock: Stock) -> bool:
@@ -119,7 +97,7 @@ def fetch_profile(session: Session, code: str) -> Stock | None:
         return stock
 
     concepts = _fetch_concepts(code)
-    business = _fetch_business(session, code)
+    company = _fetch_company_info(code)
 
     if info:
         if info.get("total_share") is not None:
@@ -132,8 +110,14 @@ def fetch_profile(session: Session, code: str) -> Stock | None:
             stock.list_date = info["list_date"]
     if concepts:
         stock.concepts = json.dumps(concepts, ensure_ascii=False)
-    if business:
-        stock.business = business
+    if company:
+        for key in ("chairman", "manager", "setup_date", "province", "city",
+                     "introduction", "main_business", "business", "website",
+                     "office"):
+            if company.get(key):
+                setattr(stock, key, company[key])
+        if company.get("employees") is not None:
+            stock.employees = company["employees"]
 
     stock.profile_updated_at = datetime.now()
     session.commit()

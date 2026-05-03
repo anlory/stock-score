@@ -1,7 +1,5 @@
 """Service layer: business logic extracted from routers."""
-import json
 import logging
-import re
 from datetime import datetime
 from backend.collectors.base import proxy_safe_get
 from backend.database import get_db_session, upsert
@@ -52,32 +50,48 @@ def search_stock(q: str, session) -> list[dict]:
     return []
 
 
-def fetch_industries() -> list[dict]:
-    """Return all A-share industry sectors with today's change from Sina."""
-    try:
-        r = proxy_safe_get(
-            "http://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php",
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        m = re.search(r'\{(.+)\}', r.text, re.S)
-        data = json.loads("{" + m.group(1) + "}")
-        result = []
-        for key, val in data.items():
-            parts = val.split(",")
-            if len(parts) >= 13:
-                result.append({
-                    "name": parts[1],
-                    "count": int(parts[2]),
-                    "change_pct": round(float(parts[5]), 2),
-                    "volume": int(parts[6]),
-                    "amount": round(float(parts[7]) / 1e8, 2),
-                    "leading_name": parts[12],
-                    "leading_pct": round(float(parts[11]), 2),
-                })
-        result.sort(key=lambda x: x["change_pct"], reverse=True)
-        return result
-    except Exception:
+def fetch_sectors(session) -> list[dict]:
+    """Return top sectors by avg change_pct, each with constituent stocks."""
+    from collections import defaultdict
+    from sqlalchemy import func
+    from backend.models import DailyData
+
+    latest = session.query(func.max(DailyData.date)).scalar()
+    if not latest:
         return []
+
+    stocks = session.query(Stock).filter(Stock.industry != None, Stock.industry != "").all()
+    codes = [s.code for s in stocks]
+    dailies = {
+        d.code: d
+        for d in session.query(DailyData).filter(DailyData.date == latest, DailyData.code.in_(codes))
+    }
+
+    by_industry = defaultdict(list)
+    for s in stocks:
+        d = dailies.get(s.code)
+        by_industry[s.industry].append({
+            "code": s.code,
+            "name": s.name,
+            "change_pct": round(d.change_pct, 2) if d and d.change_pct is not None else None,
+        })
+
+    result = []
+    for name, sector_stocks in by_industry.items():
+        changes = [s["change_pct"] for s in sector_stocks if s["change_pct"] is not None]
+        if not changes:
+            continue
+        avg_change = round(sum(changes) / len(changes), 2)
+        sector_stocks.sort(key=lambda x: x["change_pct"] or 0, reverse=True)
+        result.append({
+            "name": name,
+            "avg_change": avg_change,
+            "count": len(sector_stocks),
+            "stocks": sector_stocks[:30],
+        })
+
+    result.sort(key=lambda x: x["avg_change"], reverse=True)
+    return result[:20]
 
 
 def collect_single(code: str) -> dict:
@@ -102,7 +116,6 @@ def collect_single(code: str) -> dict:
         from backend.collectors.fundamental import collect_fundamental
         from backend.collectors.news import collect_news
         from backend.collectors.market_heat import collect_market_heat
-        from backend.collectors.trend import collect_trend
 
         collectors = [
             ("technical", collect_technical),
@@ -110,7 +123,6 @@ def collect_single(code: str) -> dict:
             ("fundamental", collect_fundamental),
             ("news", collect_news),
             ("market_heat", collect_market_heat),
-            ("trend", collect_trend),
         ]
         for name, fn in collectors:
             try:

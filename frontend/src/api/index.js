@@ -2,8 +2,8 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
-export const getLeaderboard = (type) =>
-  api.get('/scores/leaderboard', { params: { type } }).then(r => r.data)
+export const getLeaderboard = (type, strategy) =>
+  api.get('/scores/leaderboard', { params: { type, strategy } }).then(r => r.data)
 
 export const getStockDetail = (code, strategy) =>
   api.get(`/scores/${code}`, { params: { strategy } }).then(r => r.data)
@@ -41,5 +41,5 @@ export const checkWatchlist = (code) =>
 export const collectSingle = (code) =>
   api.post(`/trigger/collect/${code}`).then(r => r.data)
 
-export const getIndustries = () =>
-  api.get('/stocks/industries').then(r => r.data)
+export const getSectors = () =>
+  api.get('/stocks/sectors').then(r => r.data)

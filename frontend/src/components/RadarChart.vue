@@ -16,8 +16,8 @@ function render() {
     backgroundColor: 'transparent',
     radar: {
       indicator: [
-        { name: '技术面', max: 100 }, { name: '资金面', max: 100 },
-        { name: '基本面', max: 100 }, { name: '消息面', max: 100 },
+        { name: '技术面', max: 100 },
+        { name: '资金面', max: 100 },
         { name: '市场热度', max: 100 },
       ],
       shape: 'polygon',
@@ -30,8 +30,8 @@ function render() {
       type: 'radar',
       data: [{
         value: [
-          props.scores?.technical ?? 0, props.scores?.capital ?? 0,
-          props.scores?.fundamental ?? 0, props.scores?.news ?? 0,
+          props.scores?.technical ?? 0,
+          props.scores?.capital ?? 0,
           props.scores?.heat ?? 0,
         ],
         areaStyle: { color: 'rgba(59,130,246,0.2)' },

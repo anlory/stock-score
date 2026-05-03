@@ -1,7 +1,7 @@
 # backend/collectors/fundamental.py
 import logging
 from datetime import date
-from backend.collectors.tushare_client import get_pro, to_ts_code, to_ts_date
+from backend.collectors.tushare_client import get_pro, to_ts_code, to_ts_date, ts_call
 from backend.database import upsert
 from backend.models import DailyData
 
@@ -18,11 +18,11 @@ def _latest_fina_period(year: int, month: int) -> str:
     return f"{year}0930"
 
 
-def collect_fundamental(session, target_codes: set[str] = None) -> int:
-    today = date.today()
-    today_str = today.isoformat()
+def collect_fundamental(session, target_codes: set[str] = None, today: str = None) -> int:
+    today_str = today or date.today().isoformat()
+    today_dt = date.fromisoformat(today_str)
     today_ts = to_ts_date(today_str)
-    period = _latest_fina_period(today.year, today.month)
+    period = _latest_fina_period(today_dt.year, today_dt.month)
 
     if not target_codes:
         return 0
@@ -30,7 +30,7 @@ def collect_fundamental(session, target_codes: set[str] = None) -> int:
     pro = get_pro()
 
     # PE / PB / market_cap from daily_basic (full market, one call)
-    basic_df = pro.daily_basic(trade_date=today_ts, fields="ts_code,pe_ttm,pb,total_mv")
+    basic_df = ts_call(pro.daily_basic, trade_date=today_ts, fields="ts_code,pe_ttm,pb,total_mv")
     basic_map: dict[str, dict] = {}
     if basic_df is not None and not basic_df.empty:
         for _, row in basic_df.iterrows():
@@ -44,9 +44,11 @@ def collect_fundamental(session, target_codes: set[str] = None) -> int:
 
     # ROE / profit_growth_yoy from fina_indicator (per stock, tushare only accepts single ts_code)
     fina_map: dict[str, dict] = {}
-    for code in sorted(target_codes):
+    codes_sorted = sorted(target_codes)
+    total = len(codes_sorted)
+    for i, code in enumerate(codes_sorted, 1):
         try:
-            df = pro.fina_indicator(ts_code=to_ts_code(code), period=period, fields="ts_code,roe,netprofit_yoy")
+            df = ts_call(pro.fina_indicator, ts_code=to_ts_code(code), period=period, fields="ts_code,roe,netprofit_yoy")
             if df is None or df.empty:
                 continue
             row = df.iloc[0]
@@ -56,6 +58,8 @@ def collect_fundamental(session, target_codes: set[str] = None) -> int:
             }
         except Exception as e:
             logger.error(f"fina_indicator failed for {code}: {e}")
+        if i % 50 == 0 or i == total:
+            logger.info(f"Fundamental fina: {i}/{total}")
 
     count = 0
     for code in target_codes:

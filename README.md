@@ -1,20 +1,18 @@
 # A股评分系统
 
-本地运行的多维度 A 股评分系统，多数据源采集，SQLite 持久化存储，FastAPI 后端 + Vue 3 前端，集成 AI 智能分析。
+本地运行的多维度 A 股评分系统，Tushare 数据源，SQLite 持久化存储，FastAPI 后端 + Vue 3 前端，集成 AI 智能分析。
 
 ## 评分维度
 
 | 维度 | 数据来源 | 指标 |
 |---|---|---|
-| 技术面 | 腾讯财经 + pandas_ta | MA5/13/30, MACD, RSI(14), KDJ, BOLL, 均线共振, 量比 |
-| 资金面 | 东方财富 | 主力净流入, 超大单净流入, 5日主力净流入 |
-| 基本面 | pywencai（问财） | PE, PB, ROE, 净利润增速, 市值 |
+| 技术面 | Tushare `daily` + pandas_ta | MA5/13/30, MACD, RSI(14), KDJ, BOLL, 均线共振, 量比 |
+| 资金面 | Tushare `moneyflow` | 主力净流入, 超大单净流入, 5日主力净流入 |
+| 基本面 | Tushare `daily_basic` / `fina_indicator` | PE, PB, ROE, 净利润增速, 市值 |
 | 消息面 | pywencai（问财） | 研报数量/评级 |
-| 市场热度 | pywencai（问财） | 涨跌幅, 换手率, 量比, 连板数 |
+| 市场热度 | Tushare `daily` / `daily_basic` / `limit_list_d` | 涨跌幅, 换手率, 量比, 连板数 |
 
 ## 评分策略
-
-系统同时计算两个策略维度的总分：
 
 | 策略 | 技术面 | 资金面 | 基本面 | 消息面 | 热度 |
 |---|---|---|---|---|---|
@@ -37,7 +35,7 @@
 - **后端**: Python 3.12 + FastAPI + SQLAlchemy + APScheduler
 - **前端**: Vue 3 + Vite + Tailwind CSS v4 + ECharts
 - **数据库**: SQLite
-- **数据源**: 腾讯财经（K线）、东方财富（资金流）、pywencai（基本面/消息/热度）
+- **数据源**: Tushare Pro（K线、资金流、基本面、热度）、pywencai（消息面）
 - **AI**: 智谱 GLM（默认 glm-5.1）
 - **包管理**: uv（Python）、npm（Node.js）
 
@@ -47,7 +45,8 @@
 
 - [uv](https://docs.astral.sh/uv/) >= 0.11
 - Node.js >= 18
-- 智谱 API Key（用于 AI 分析，可选）
+- Tushare Token（必须，用于数据采集）
+- 智谱 API Key（可选，用于 AI 分析）
 
 ### 安装
 
@@ -66,16 +65,19 @@ cd frontend && npm install && cd ..
 
 ```bash
 # 基础启动
-uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+TUSHARE_TOKEN=你的Token uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
-# 启用 AI 分析（设置环境变量）
-GLM_API_KEY=你的APIKey uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+# 启用 AI 分析
+TUSHARE_TOKEN=你的Token GLM_API_KEY=你的APIKey uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 # 开发模式（前后端分离）
 # 终端 1: 后端
-uv run uvicorn backend.main:app --reload --port 8000
+TUSHARE_TOKEN=你的Token uv run uvicorn backend.main:app --reload --port 8000
 # 终端 2: 前端（热更新）
 cd frontend && npm run dev
+
+# 前后端同时启动
+./dev.sh
 ```
 
 访问 http://localhost:8000
@@ -100,13 +102,15 @@ stock_score/
 │   ├── engine.py            # 评分引擎
 │   ├── models/              # ORM 模型 (Stock, DailyData, Score, Strategy)
 │   ├── collectors/          # 数据采集
-│   │   ├── tencent_kline.py # 腾讯财经K线
+│   │   ├── tushare_client.py # Tushare 客户端单例 & 代码格式转换
 │   │   ├── technical.py     # 技术指标（pandas_ta）
-│   │   ├── capital.py       # 资金流（东方财富）
-│   │   ├── fundamental.py   # 基本面（pywencai）
+│   │   ├── capital.py       # 资金流（moneyflow）
+│   │   ├── fundamental.py   # 基本面（daily_basic / fina_indicator）
 │   │   ├── news.py          # 消息面（pywencai）
-│   │   ├── market_heat.py   # 市场热度（pywencai）
-│   │   ├── universe.py      # 股票池同步
+│   │   ├── market_heat.py   # 市场热度（daily / limit_list_d）
+│   │   ├── trend.py         # 趋势（收益率 / 行业涨幅 / 形态标签）
+│   │   ├── universe.py      # 股票池同步（index_member / ths_index）
+│   │   ├── profile.py       # 个股档案（stock_company / concept）
 │   │   └── base.py          # pywencai 封装
 │   ├── scorers/             # 评分器（五维度独立评分逻辑）
 │   └── routers/             # API 路由
@@ -119,6 +123,7 @@ stock_score/
 │       ├── views/           # Dashboard, StockDetail, History
 │       ├── components/      # ScoreTable, RadarChart, KlineChart, TrendChart
 │       └── api/             # API 客户端
+├── tests/                   # pytest 测试套件
 ├── data/                    # SQLite 数据库（运行时生成）
 └── pyproject.toml           # uv 项目配置
 ```
@@ -145,12 +150,14 @@ stock_score/
 
 - **自选股**: 用户手动维护
 - **指数成分股**: 沪深300、中证500、创业板指
-- **热门板块**: 当日涨幅 Top10 板块，每板块取前 5 只
+- **热门板块**: 当日涨幅 Top10 板块（同花顺行业指数），每板块取前 5 只
 
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
+| `TUSHARE_TOKEN` | 空 | Tushare Pro Token，**必须设置** |
+| `TUSHARE_URL` | `http://api.tushare.pro` | Tushare API 地址，可替换为代理 |
 | `GLM_API_KEY` | 空 | 智谱 API Key，不设置则 AI 分析不可用 |
 | `AI_BASE_URL` | `https://open.bigmodel.cn/api/coding/paas/v4` | AI API 地址 |
 | `AI_MODEL` | `glm-5.1` | 使用的模型 |

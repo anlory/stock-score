@@ -6,14 +6,20 @@ from backend.scorers.news import NewsScorer
 from backend.scorers.market_heat import HeatScorer
 
 def test_percentile_higher():
+    # (below + 0.5*equal) / N: max→90, min→10 with N=5
     values = [10, 20, 30, 40, 50]
-    assert percentile_score(50, values, True) == 100
-    assert percentile_score(10, values, True) == 0
+    assert percentile_score(50, values, True) == 90
+    assert percentile_score(10, values, True) == 10
 
 def test_percentile_lower():
     values = [10, 20, 30, 40, 50]
-    assert percentile_score(10, values, False) == 100
-    assert percentile_score(50, values, False) == 0
+    assert percentile_score(10, values, False) == 90
+    assert percentile_score(50, values, False) == 10
+
+def test_percentile_all_equal_returns_50():
+    values = [42, 42, 42, 42, 42]
+    assert percentile_score(42, values, True) == 50
+    assert percentile_score(42, values, False) == 50
 
 def test_percentile_empty():
     assert percentile_score(10, [], True) == 50
@@ -44,23 +50,42 @@ UNIVERSE = {
 
 def test_technical_bullish():
     data = {"close": 10.0, "ma5": 9.8, "ma13": 9.5, "ma30": 9.0,
-            "macd_dif": 0.1, "macd_dea": 0.05, "macd_bar": 0.1,
-            "rsi14": 60.0, "kdj_k": 70.0, "kdj_d": 65.0, "kdj_j": 80.0,
-            "boll_upper": 11.0, "boll_mid": 10.0, "boll_lower": 9.0, "volume_ratio": 1.5}
+            "prev_ma5": 9.6, "prev_ma13": 9.4, "prev_ma30": 8.9,
+            "return_3d": 5.0, "return_5d": 6.0, "return_13d": 15.0,
+            "return_mid": 22.0, "ma5_slope3": 2.0, "is_10d_high": 1,
+            "is_30d_high": 1,
+            "vol_ma3": 500, "vol_ma5": 600, "vol_ma13": 300, "vol_ma30": 400,
+            "close_above_ma5_5d": 5, "last_close_above_ma5": 1}
     score = TechnicalScorer().score(data)
     assert 0 <= score <= 100
-    assert score > 50
+    assert score >= 80, f"bullish should score >= 80, got {score}"
 
 def test_technical_bearish():
     data = {"close": 8.0, "ma5": 9.0, "ma13": 9.5, "ma30": 10.0,
-            "macd_dif": -0.1, "macd_dea": 0.05, "macd_bar": -0.2,
-            "rsi14": 25.0, "kdj_k": 20.0, "kdj_d": 30.0, "kdj_j": 5.0,
-            "boll_upper": 11.0, "boll_mid": 9.5, "boll_lower": 8.5, "volume_ratio": 0.5}
+            "prev_ma5": 9.2, "prev_ma13": 9.4, "prev_ma30": 9.8,
+            "return_3d": -3.0, "return_5d": -5.0, "return_13d": -10.0,
+            "return_mid": -15.0, "ma5_slope3": -1.5, "is_10d_high": 0,
+            "is_30d_high": 0,
+            "vol_ma3": 300, "vol_ma5": 350, "vol_ma13": 500, "vol_ma30": 450,
+            "close_above_ma5_5d": 0, "last_close_above_ma5": 0}
     score = TechnicalScorer().score(data)
-    assert score < 50
+    assert score < 20, f"bearish should score < 20, got {score}"
 
 def test_technical_no_data():
-    assert TechnicalScorer().score({}) == 50.0
+    score = TechnicalScorer().score({})
+    assert score == 0.0
+
+def test_technical_pullback_channel():
+    """Channel A: pullback to MA13 + back above MA5"""
+    data = {"close": 9.7, "ma5": 9.65, "ma13": 9.6, "ma30": 9.2,
+            "prev_ma5": 9.7, "prev_ma13": 9.6, "prev_ma30": 9.2,
+            "return_3d": -1.0, "return_5d": 1.0, "return_13d": 5.0,
+            "return_mid": 8.0, "ma5_slope3": 0.5, "is_10d_high": 0,
+            "is_30d_high": 0,
+            "vol_ma3": 200, "vol_ma5": 250, "vol_ma13": 300, "vol_ma30": 350,
+            "close_above_ma5_5d": 3, "last_close_above_ma5": 1}
+    score = TechnicalScorer().score(data)
+    assert 20 <= score <= 60
 
 def test_capital_range():
     data = {"main_inflow_today": 400, "main_inflow_5d": 400,

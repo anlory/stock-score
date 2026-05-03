@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from backend.database import get_session, upsert
 from backend.models import Stock
 from backend.collectors.profile import fetch_profile
-from backend.services import search_stock, fetch_industries
+from backend.services import search_stock, fetch_sectors
 import json
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
@@ -22,14 +22,28 @@ def get_watchlist(session: Session = Depends(get_session)):
 
 @router.post("/watchlist")
 def add_to_watchlist(stock: StockIn, session: Session = Depends(get_session)):
+    from backend.services import fetch_stock_from_tencent
     code = stock.code.zfill(6)
+    existing = session.get(Stock, code)
+    if existing:
+        existing.is_watchlist = True
+        if stock.name:
+            existing.name = stock.name
+        session.commit()
+        return {"code": code, "name": existing.name}
+
+    name = stock.name
+    if not name:
+        info = fetch_stock_from_tencent(code)
+        name = info["name"] if info else code
+
     market = "SH" if code.startswith(("6", "5", "9")) else ("BJ" if code.startswith(("4", "8")) else "SZ")
     upsert(session, Stock, {
-        "code": code, "name": stock.name or code,
+        "code": code, "name": name,
         "market": market, "is_watchlist": True, "index_tags": "[]",
     }, ["code"])
     session.commit()
-    return {"code": code, "name": stock.name}
+    return {"code": code, "name": name}
 
 
 @router.delete("/watchlist/{code}")
@@ -54,9 +68,9 @@ def search_stocks(q: str = "", session: Session = Depends(get_session)):
     return search_stock(q, session)
 
 
-@router.get("/industries")
-def get_industries():
-    return fetch_industries()
+@router.get("/sectors")
+def get_sectors(session: Session = Depends(get_session)):
+    return fetch_sectors(session)
 
 
 @router.get("/{code}/profile")
@@ -82,4 +96,14 @@ def get_stock_profile(code: str, session: Session = Depends(get_session)):
         "pe": stock.pe,
         "pb": stock.pb,
         "list_date": stock.list_date,
+        "chairman": stock.chairman,
+        "manager": stock.manager,
+        "setup_date": stock.setup_date,
+        "province": stock.province,
+        "city": stock.city,
+        "introduction": stock.introduction,
+        "main_business": stock.main_business,
+        "website": stock.website,
+        "employees": stock.employees,
+        "office": stock.office,
     }

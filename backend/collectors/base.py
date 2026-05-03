@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import pywencai
 import pandas as pd
 import requests as _requests
@@ -22,10 +23,10 @@ def proxy_safe_get(url: str, **kwargs) -> _requests.Response:
     return _requests.get(url, **kwargs)
 
 
-def query_wencai(query: str, query_type: str = "stock") -> pd.DataFrame:
+def query_wencai(query: str, query_type: str = "stock", loop: bool = False) -> pd.DataFrame:
     """Execute pywencai query. Returns empty DataFrame on failure."""
     try:
-        result = pywencai.get(query=query, query_type=query_type)
+        result = pywencai.get(query=query, query_type=query_type, loop=loop)
         if result is None:
             return pd.DataFrame()
         if isinstance(result, dict):

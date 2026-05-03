@@ -24,6 +24,7 @@
       <div class="flex items-center gap-4 mb-6">
         <h1 class="text-2xl font-bold">{{ data.name }}</h1>
         <span class="font-mono text-gray-400">{{ data.code }}</span>
+          <a :href="`https://stockpage.10jqka.com.cn/${data.code}/`" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">同花顺 ↗</a>
         <div class="ml-auto flex items-center gap-3">
           <button v-if="isWatchlist" @click="removeWatch" class="text-xs border border-gray-600 text-gray-400 px-3 py-1 rounded hover:text-red-400 hover:border-red-400 transition-colors">已加自选</button>
           <button v-else @click="addWatch" class="text-xs border border-amber-600 text-amber-400 px-3 py-1 rounded hover:bg-amber-900/30 transition-colors">+ 自选</button>
@@ -40,28 +41,44 @@
       <section class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
         <h2 class="text-sm text-gray-400 font-semibold mb-3">公司概况</h2>
         <div v-if="profile" class="space-y-3">
-          <div class="flex flex-wrap gap-2">
-            <span v-if="profile.industry" class="bg-blue-900/40 text-blue-300 text-xs px-2 py-0.5 rounded">
-              {{ profile.industry }}
-            </span>
-            <span v-for="c in profile.concepts" :key="c" class="bg-gray-800 text-xs px-2 py-0.5 rounded text-gray-300">
-              {{ c }}
-            </span>
-          </div>
-          <div v-if="profile.business" class="text-sm text-gray-200 leading-relaxed">
-            <span :class="{ 'line-clamp-2': !showFullBiz }">{{ profile.business }}</span>
-            <button v-if="profile.business.length > 80"
+          <!-- 简介 -->
+          <div v-if="profile.introduction" class="text-sm text-gray-300 leading-relaxed">
+            <span :class="{ 'line-clamp-3': !showFullBiz }">{{ profile.introduction }}</span>
+            <button v-if="profile.introduction.length > 80"
               @click="showFullBiz = !showFullBiz"
               class="ml-2 text-blue-400 text-xs">{{ showFullBiz ? '收起' : '展开' }}</button>
           </div>
-          <div class="text-xs text-gray-500 flex gap-4 flex-wrap">
-            <span v-if="profile.list_date">上市：{{ profile.list_date }}</span>
-            <span v-if="profile.total_mv">总市值：{{ profile.total_mv }} 亿</span>
-            <span v-if="profile.float_mv">流通市值：{{ profile.float_mv }} 亿</span>
-            <span v-if="profile.total_share">总股本：{{ profile.total_share }} 亿</span>
-            <span v-if="profile.float_share">流通股本：{{ profile.float_share }} 亿</span>
-            <span v-if="profile.pe">PE：{{ profile.pe }}</span>
-            <span v-if="profile.pb">PB：{{ profile.pb }}</span>
+          <!-- 主营 -->
+          <div v-if="profile.main_business" class="text-xs text-gray-400">
+            <span class="text-gray-500">主营：</span>{{ profile.main_business }}
+          </div>
+          <!-- 行业 + 概念 -->
+          <div class="flex flex-wrap gap-1.5">
+            <span v-if="profile.industry" class="bg-blue-900/40 text-blue-300 text-xs px-2 py-0.5 rounded">{{ profile.industry }}</span>
+            <span v-for="c in profile.concepts" :key="c" class="bg-gray-800 text-xs px-2 py-0.5 rounded text-gray-300">{{ c }}</span>
+          </div>
+          <!-- 信息网格 -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-xs">
+            <div v-if="profile.chairman"><span class="text-gray-500">董事长</span> <span class="text-gray-200 ml-1">{{ profile.chairman }}</span></div>
+            <div v-if="profile.manager"><span class="text-gray-500">总经理</span> <span class="text-gray-200 ml-1">{{ profile.manager }}</span></div>
+            <div v-if="profile.setup_date"><span class="text-gray-500">成立</span> <span class="text-gray-200 ml-1">{{ profile.setup_date }}</span></div>
+            <div v-if="profile.list_date"><span class="text-gray-500">上市</span> <span class="text-gray-200 ml-1">{{ profile.list_date }}</span></div>
+            <div v-if="profile.province || profile.city"><span class="text-gray-500">地区</span> <span class="text-gray-200 ml-1">{{ [profile.province, profile.city].filter(Boolean).join(' ') }}</span></div>
+            <div v-if="profile.employees"><span class="text-gray-500">员工</span> <span class="text-gray-200 ml-1">{{ Math.round(profile.employees).toLocaleString() }}</span></div>
+            <div v-if="profile.total_mv"><span class="text-gray-500">总市值</span> <span class="text-gray-200 ml-1">{{ Math.round(profile.total_mv) }} 亿</span></div>
+            <div v-if="profile.float_mv"><span class="text-gray-500">流通市值</span> <span class="text-gray-200 ml-1">{{ Math.round(profile.float_mv) }} 亿</span></div>
+            <div v-if="profile.total_share"><span class="text-gray-500">总股本</span> <span class="text-gray-200 ml-1">{{ profile.total_share }} 亿</span></div>
+            <div v-if="profile.float_share"><span class="text-gray-500">流通股</span> <span class="text-gray-200 ml-1">{{ profile.float_share }} 亿</span></div>
+            <div v-if="profile.pe"><span class="text-gray-500">PE</span> <span class="text-gray-200 ml-1">{{ Math.round(profile.pe) }}</span></div>
+            <div v-if="profile.pb"><span class="text-gray-500">PB</span> <span class="text-gray-200 ml-1">{{ Math.round(profile.pb * 100) / 100 }}</span></div>
+          </div>
+          <!-- 办公地址 -->
+          <div v-if="profile.office" class="text-xs text-gray-500">
+            <span>地址：</span><span class="text-gray-400">{{ profile.office }}</span>
+          </div>
+          <!-- 经营范围 -->
+          <div v-if="profile.business" class="text-xs text-gray-500">
+            <span>经营范围：</span><span class="text-gray-400">{{ profile.business }}</span>
           </div>
         </div>
         <div v-else class="text-gray-600 text-xs py-2">暂无公司资料</div>
@@ -70,11 +87,9 @@
       <!-- 板块关联 -->
       <section class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
         <h2 class="text-sm text-gray-400 font-semibold mb-3">板块关联</h2>
-        <div v-if="profile?.industry && trendInfo" class="flex flex-wrap items-center gap-4 text-sm">
-          <span class="text-gray-200">{{ profile.industry }}</span>
-          <span>今日 <span :class="pctColor(trendInfo.industry_change)" class="font-mono">{{ fmtPct(trendInfo.industry_change) }}</span></span>
-          <span>近5日 <span :class="pctColor(trendInfo.industry_change_5d)" class="font-mono">{{ fmtPct(trendInfo.industry_change_5d) }}</span></span>
-          <span>近20日 <span :class="pctColor(trendInfo.industry_change_20d)" class="font-mono">{{ fmtPct(trendInfo.industry_change_20d) }}</span></span>
+        <div v-if="profile?.industry" class="flex flex-wrap items-center gap-2 text-sm">
+          <span class="bg-blue-900/40 text-blue-300 text-xs px-2 py-0.5 rounded">{{ profile.industry }}</span>
+          <span v-for="c in profile.concepts" :key="c" class="bg-gray-800 text-xs px-2 py-0.5 rounded text-gray-300">{{ c }}</span>
         </div>
         <div v-else class="text-gray-600 text-xs py-2">暂无板块数据</div>
       </section>
@@ -113,16 +128,33 @@
         <div v-else class="text-gray-600 text-center py-4 text-xs">点击"开始分析"获取 AI 综合研判</div>
       </section>
 
-      <!-- 雷达图 + 五维评分 -->
+      <!-- 雷达图 + 三维评分 -->
       <div class="flex gap-6 flex-wrap mb-4">
         <RadarChart :scores="data.scores" />
-        <div class="flex-1 grid grid-cols-1 gap-3 min-w-[260px]">
-          <div v-for="dim in dimensions" :key="dim.key"
+        <div class="flex-1 min-w-[260px] space-y-3">
+          <div v-for="dim in scoreDims" :key="dim.key"
             class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 flex items-center justify-between">
             <span class="text-gray-400 text-sm">{{ dim.label }}</span>
             <span class="font-mono font-semibold text-lg" :class="scoreColor(data.scores?.[dim.key])">
               {{ data.scores?.[dim.key] ?? '-' }}
             </span>
+          </div>
+          <!-- 基本面 & 消息面参考 -->
+          <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
+            <div class="text-gray-500 text-xs mb-2">基本面参考</div>
+            <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono">
+              <span>PE <span class="text-gray-200">{{ data.raw?.pe ?? '-' }}</span></span>
+              <span>PB <span class="text-gray-200">{{ data.raw?.pb ?? '-' }}</span></span>
+              <span>ROE <span class="text-gray-200">{{ data.raw?.roe != null ? data.raw.roe + '%' : '-' }}</span></span>
+              <span>净利增速 <span class="text-gray-200">{{ data.raw?.profit_growth_yoy != null ? data.raw.profit_growth_yoy + '%' : '-' }}</span></span>
+            </div>
+          </div>
+          <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3">
+            <div class="text-gray-500 text-xs mb-2">消息面参考</div>
+            <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs font-mono">
+              <span>近30日研报 <span class="text-gray-200">{{ data.raw?.report_count ?? '-' }}</span></span>
+              <span>评级 <span class="text-gray-200">{{ data.raw?.report_rating ?? '-' }}</span></span>
+            </div>
           </div>
         </div>
       </div>
@@ -179,11 +211,9 @@ const displayAnalysis = computed(() => {
   return text ? marked.parse(preprocessBold(text)) : ''
 })
 
-const dimensions = [
+const scoreDims = [
   { key: 'technical', label: '技术面' },
   { key: 'capital', label: '资金面' },
-  { key: 'fundamental', label: '基本面' },
-  { key: 'news', label: '消息面' },
   { key: 'heat', label: '市场热度' },
 ]
 const SKIP = new Set(['code', 'date', '_sa_instance_state', 'ai_analysis',

@@ -12,8 +12,8 @@ COL_PATTERNS = {
 }
 
 
-def collect_news(session, target_codes: set[str] = None):
-    today = date.today().isoformat()
+def collect_news(session, target_codes: set[str] = None, today: str = None):
+    today = today or date.today().isoformat()
     codes = sorted(target_codes) if target_codes else []
     if not codes:
         return 0

@@ -15,35 +15,40 @@ def _latest_date(session):
 @router.get("/leaderboard")
 def get_leaderboard(
     type: str = Query("other"),
+    strategy: str = Query("short_term"),
     session: Session = Depends(get_session),
 ):
     latest = _latest_date(session)
-    trend_map = {}
-    for s in session.query(Score).filter(Score.date == latest, Score.strategy == "trend"):
-        trend_map[s.code] = s
-    short_map = {}
-    for s in session.query(Score).filter(Score.date == latest, Score.strategy == "short_term"):
-        short_map[s.code] = s
 
-    all_codes = set(trend_map.keys()) | set(short_map.keys())
+    score_maps: dict[str, dict[str, Score]] = {}
+    for strat in ("short_term", "trend", "value"):
+        score_maps[strat] = {
+            s.code: s
+            for s in session.query(Score).filter(Score.date == latest, Score.strategy == strat)
+        }
+
+    all_codes: set[str] = set()
+    for m in score_maps.values():
+        all_codes.update(m.keys())
+
     stocks = {s.code: s for s in session.query(Stock).filter(Stock.code.in_(all_codes))}
+    all_codes = {c for c in all_codes if c in stocks}
     if type == "watchlist":
-        all_codes = {c for c in all_codes if c in stocks and stocks[c].is_watchlist}
+        all_codes = {c for c in all_codes if stocks[c].is_watchlist}
 
-    ranked = sorted(all_codes, key=lambda c: trend_map[c].total_score if c in trend_map else 0, reverse=True)[:200]
+    primary = score_maps.get(strategy, {})
+    ranked = sorted(all_codes, key=lambda c: primary[c].total_score if c in primary else 0, reverse=True)[:200]
+
     return {
         "date": latest,
         "stocks": [
         {
             "rank": i + 1, "code": c, "name": stocks[c].name if c in stocks else c,
             "is_watchlist": stocks[c].is_watchlist if c in stocks else False,
-            "short_score": short_map[c].total_score if c in short_map else None,
-            "trend_score": trend_map[c].total_score if c in trend_map else None,
-            "technical_score": trend_map[c].technical_score if c in trend_map else None,
-            "capital_score": trend_map[c].capital_score if c in trend_map else None,
-            "fundamental_score": trend_map[c].fundamental_score if c in trend_map else None,
-            "news_score": trend_map[c].news_score if c in trend_map else None,
-            "heat_score": trend_map[c].heat_score if c in trend_map else None,
+            "total_score": primary[c].total_score if c in primary else None,
+            "technical_score": primary[c].technical_score if c in primary else None,
+            "capital_score": primary[c].capital_score if c in primary else None,
+            "heat_score": primary[c].heat_score if c in primary else None,
         }
         for i, c in enumerate(ranked)
         ]
@@ -86,9 +91,6 @@ def get_stock_detail(code: str, session: Session = Depends(get_session)):
             "return_5d": daily.return_5d,
             "return_20d": daily.return_20d,
             "return_60d": daily.return_60d,
-            "industry_change": daily.industry_change,
-            "industry_change_5d": daily.industry_change_5d,
-            "industry_change_20d": daily.industry_change_20d,
             "pattern_tags": pattern_tags,
         }
 

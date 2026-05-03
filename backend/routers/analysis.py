@@ -40,9 +40,6 @@ def _build_prompt(stock_name: str, stock_code: str, scores: dict, profile=None, 
         r5, r20, r60 = trend_info.get("return_5d"), trend_info.get("return_20d"), trend_info.get("return_60d")
         if any(v is not None for v in (r5, r20, r60)):
             lines.append(f"个股涨跌：近5日 {r5}%，近20日 {r20}%，近60日 {r60}%")
-        ic, ic5, ic20 = trend_info.get("industry_change"), trend_info.get("industry_change_5d"), trend_info.get("industry_change_20d")
-        if any(v is not None for v in (ic, ic5, ic20)):
-            lines.append(f"行业涨跌：今日 {ic}%，近5日 {ic5}%，近20日 {ic20}%")
         tags = trend_info.get("pattern_tags") or []
         if tags:
             lines.append(f"技术形态：{', '.join(tags)}")
@@ -139,9 +136,6 @@ def analyze_stock(code: str, session: Session = Depends(get_session)):
             pattern_tags = []
         trend_info_payload = {
             "return_5d": daily.return_5d, "return_20d": daily.return_20d, "return_60d": daily.return_60d,
-            "industry_change": daily.industry_change,
-            "industry_change_5d": daily.industry_change_5d,
-            "industry_change_20d": daily.industry_change_20d,
             "pattern_tags": pattern_tags,
         }
 

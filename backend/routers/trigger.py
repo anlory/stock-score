@@ -1,16 +1,15 @@
 import threading
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from fastapi import APIRouter
 from backend.database import get_db_session
+from backend.collectors.tushare_client import get_last_trade_date
 from backend.collectors.universe import sync_universe
 from backend.collectors.technical import collect_technical
 from backend.collectors.capital import collect_capital
-from backend.collectors.fundamental import collect_fundamental
-from backend.collectors.news import collect_news
 from backend.collectors.market_heat import collect_market_heat
-from backend.collectors.trend import collect_trend
 from backend.engine import ScoreEngine
 from backend.models import Stock
 from backend.services import collect_single
@@ -21,11 +20,11 @@ logger = logging.getLogger(__name__)
 _status = {"running": False, "last_run": None, "last_result": None}
 
 
-def _run_collector(name, fn, codes):
+def _run_collector(name, fn, codes, trade_date):
     try:
         session = get_db_session()
         try:
-            count = fn(session, codes)
+            count = fn(session, codes, today=trade_date)
             logger.info(f"[{name}] collected {count} stocks")
             return (name, count, None)
         finally:
@@ -37,26 +36,29 @@ def _run_collector(name, fn, codes):
 
 def _run_pipeline():
     _status["running"] = True
+    t0 = time.time()
     session = get_db_session()
     try:
-        sync_universe(session)
+        trade_date = get_last_trade_date()
+        if not trade_date:
+            _status["last_result"] = "Error: could not determine trade date"
+            return
+
+        sync_universe(session, today=trade_date)
         codes = {s.code for s in session.query(Stock).all()}
         session.close()
 
-        logger.info(f"Universe synced: {len(codes)} stocks, starting parallel collection")
+        logger.info(f"Trade date: {trade_date}, universe: {len(codes)} stocks")
 
         collectors = [
             ("technical", collect_technical),
             ("capital", collect_capital),
-            ("fundamental", collect_fundamental),
-            ("news", collect_news),
             ("market_heat", collect_market_heat),
-            ("trend", collect_trend),
         ]
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {
-                pool.submit(_run_collector, name, fn, codes): name
+                pool.submit(_run_collector, name, fn, codes, trade_date): name
                 for name, fn in collectors
             }
             for future in as_completed(futures):
@@ -66,8 +68,10 @@ def _run_pipeline():
 
         session = get_db_session()
         engine = ScoreEngine()
-        count = engine.run(session)
-        _status["last_result"] = f"Scored {count} records"
+        count = engine.run(session, today=trade_date)
+        elapsed = round(time.time() - t0)
+        _status["last_result"] = f"Scored {count} records for {trade_date} in {elapsed}s"
+        logger.info(f"Pipeline done in {elapsed}s")
     except Exception as e:
         _status["last_result"] = f"Error: {e}"
         logger.error(f"Pipeline error: {e}", exc_info=True)

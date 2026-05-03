@@ -19,7 +19,6 @@ AI_MODEL = os.getenv("AI_MODEL", "glm-5.1")
 
 # Tushare
 TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "")
-TUSHARE_URL = os.getenv("TUSHARE_URL", "http://jiaoch.site")
 
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(exist_ok=True)

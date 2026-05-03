@@ -19,6 +19,16 @@ class Stock(Base):
     total_share = Column(Float)                    # 亿股
     float_share = Column(Float)                    # 亿股
     list_date = Column(String)                     # YYYY-MM-DD
+    chairman = Column(String)
+    manager = Column(String)
+    setup_date = Column(String)
+    province = Column(String)
+    city = Column(String)
+    introduction = Column(Text)
+    main_business = Column(Text)
+    website = Column(String)
+    employees = Column(Float)
+    office = Column(Text)
     # --- quote fields (from Tencent) ---
     total_mv = Column(Float)                       # 总市值(亿)
     float_mv = Column(Float)                       # 流通市值(亿)
