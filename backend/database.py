@@ -110,15 +110,6 @@ def seed_strategies(session):
             "news_weight": 0.0,
             "heat_weight": 0.15,
         },
-        {
-            "name": "value",
-            "display_name": "价值策略",
-            "technical_weight": 0.45,
-            "capital_weight": 0.40,
-            "fundamental_weight": 0.0,
-            "news_weight": 0.0,
-            "heat_weight": 0.15,
-        },
     ]
     for s in strategies:
         upsert(session, Strategy, s, ["name"])

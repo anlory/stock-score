@@ -15,9 +15,14 @@ def test_sync_universe_inserts_index_stocks(mock_get_pro, mock_wencai, db_sessio
     }])
     mock_pro.ths_index.return_value = pd.DataFrame(columns=["ts_code", "name"])
 
-    mock_wencai.return_value = pd.DataFrame([{
-        "股票代码": "600519.SH", "股票简称": "贵州茅台",
-    }])
+    # Return data for first index, empty for rest
+    call_count = {"n": 0}
+    def _wencai_side_effect(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return pd.DataFrame([{"股票代码": "600519.SH", "股票简称": "贵州茅台"}])
+        return pd.DataFrame(columns=["股票代码", "股票简称"])
+    mock_wencai.side_effect = _wencai_side_effect
 
     total = sync_universe(db_session)
 

@@ -9,8 +9,14 @@ from backend.models import Stock
 
 logger = logging.getLogger(__name__)
 
-_INDEX_TAG = "sz50"
-_INDEX_QUERY = "上证50成分股"
+_INDICES = {
+    "sz50":   {"name": "上证50",   "query": "上证50成分股"},
+    "hs300":  {"name": "沪深300",  "query": "沪深300成分股"},
+    "zz500":  {"name": "中证500",  "query": "中证500成分股"},
+    "zz1000": {"name": "中证1000", "query": "中证1000成分股"},
+    "cyb":    {"name": "创业板指", "query": "创业板指成分股"},
+    "kcb50":  {"name": "科创50",   "query": "科创50成分股"},
+}
 
 
 def _get_market(code: str) -> str:
@@ -26,35 +32,72 @@ def _normalize(ts_code: str) -> str:
 
 
 def _fetch_index_constituents() -> dict[str, dict]:
-    """Fetch index constituents via pywencai. Returns {code: {name, industry}}."""
-    try:
-        df = query_wencai(_INDEX_QUERY, loop=True)
+    """Fetch all index constituents via pywencai. Returns {code: {name, tags}}."""
+    all_stocks: dict[str, dict] = {}
+
+    for tag, info in _INDICES.items():
+        logger.info(f"Fetching {info['name']}...")
+        try:
+            df = query_wencai(info["query"], loop=True)
+        except Exception as e:
+            logger.warning(f"wencai fetch failed for {info['name']}: {e}")
+            continue
         if df is None or df.empty:
-            return {}
+            logger.warning(f"No data for {info['name']}")
+            continue
+
         code_col = next((c for c in df.columns if "代码" in c or c == "code"), None)
         name_col = next((c for c in df.columns if "简称" in c), None)
         if not code_col:
-            return {}
-        result = {}
+            continue
+
+        count = 0
         for _, row in df.iterrows():
             code = normalize_code(row[code_col])
             if not code:
                 continue
-            result[code] = {
-                "name": str(row.get(name_col) or code) if name_col else code,
-            }
-        return result
-    except Exception as e:
-        logger.error(f"wencai index fetch failed: {e}")
-        return {}
+            if code not in all_stocks:
+                all_stocks[code] = {
+                    "name": str(row.get(name_col) or code) if name_col else code,
+                    "tags": [tag],
+                }
+            else:
+                if tag not in all_stocks[code]["tags"]:
+                    all_stocks[code]["tags"].append(tag)
+            count += 1
+        logger.info(f"{info['name']}: {count} stocks")
+
+    return all_stocks
 
 
 def _load_constituents_from_db(session) -> dict[str, dict]:
     """Load index constituents already stored in DB."""
-    stocks = session.query(Stock).filter(
-        Stock.index_tags.contains(_INDEX_TAG)
-    ).all()
-    return {s.code: {"name": s.name, "industry": s.industry} for s in stocks if s.code}
+    conditions = [Stock.index_tags.contains(tag) for tag in _INDICES]
+    from sqlalchemy import or_
+    stocks = session.query(Stock).filter(or_(*conditions)).all()
+    if not stocks:
+        return {}
+
+    # Collect all tags present in DB
+    db_tags: set[str] = set()
+    result = {}
+    for s in stocks:
+        if not s.code:
+            continue
+        try:
+            tags = json.loads(s.index_tags) if s.index_tags else []
+        except (json.JSONDecodeError, TypeError):
+            tags = []
+        db_tags.update(tags)
+        result[s.code] = {"name": s.name, "industry": s.industry, "tags": tags}
+
+    # Cache is valid only if ALL configured indices are present
+    missing = set(_INDICES.keys()) - db_tags
+    if missing:
+        logger.info(f"Cache missing indices: {missing}, will re-fetch")
+        return {}
+
+    return result
 
 
 def sync_universe(session, watchlist_codes: list[str] = None, today: str = None) -> int:
@@ -92,7 +135,7 @@ def sync_universe(session, watchlist_codes: list[str] = None, today: str = None)
             upsert(session, Stock, {
                 "code": code, "name": info["name"], "market": _get_market(code),
                 "industry": basic_info.get(code, ""),
-                "is_watchlist": False, "index_tags": json.dumps([_INDEX_TAG]),
+                "is_watchlist": False, "index_tags": json.dumps(info.get("tags", [])),
             }, ["code"])
         session.commit()
         logger.info(f"Index constituents cached: {len(index_stocks)} stocks")

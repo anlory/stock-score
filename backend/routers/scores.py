@@ -21,7 +21,7 @@ def get_leaderboard(
     latest = _latest_date(session)
 
     score_maps: dict[str, dict[str, Score]] = {}
-    for strat in ("short_term", "trend", "value"):
+    for strat in ("short_term", "trend"):
         score_maps[strat] = {
             s.code: s
             for s in session.query(Score).filter(Score.date == latest, Score.strategy == strat)
