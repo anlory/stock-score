@@ -56,6 +56,7 @@ const showGuide = ref(false)
 const strategyTabs = [
   { value: 'short_term', label: '短线策略' },
   { value: 'trend', label: '趋势策略' },
+  { value: 'setup', label: '埋伏策略' },
 ]
 
 const currentStrategyLabel = computed(() =>
@@ -73,11 +74,17 @@ const strategyDescriptions = {
     capital: { key: 'capital', label: '资金面 30%', color: '#f59e0b', desc: '主力净流入 · 超大单净流入 · 资金趋势确认' },
     heat: { key: 'heat', label: '市场热度 15%', color: '#fb923c', desc: '涨跌幅 · 换手率 · 量比' },
   },
+  setup: {
+    setup: { key: 'setup', label: '蓄势信号 55%', color: '#a78bfa', desc: '底部缩量11 · 温和放量8 · 均线收敛8 · 金叉信号11 · 跌幅充分6 · MA5斜率+站上8 · RSI低位3' },
+    capital: { key: 'capital', label: '资金面(温和) 30%', color: '#f59e0b', desc: '温和净流入15 · 持续流入10 · 超大单不流出5' },
+    heat: { key: 'heat', label: '热度面(低热度) 15%', color: '#fb923c', desc: '低换手8 · 低振幅4 · 量比适中3' },
+  },
 }
 
 const strategyDimensions = {
   short_term: Object.values(strategyDescriptions.short_term),
   trend: Object.values(strategyDescriptions.trend),
+  setup: Object.values(strategyDescriptions.setup),
 }
 const currentDimensions = computed(() => strategyDimensions[strategy.value] || [])
 

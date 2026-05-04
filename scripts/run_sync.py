@@ -1,8 +1,10 @@
 """
-手动触发一次完整数据同步，打印各阶段耗时和结果。
+手动触发数据同步/评分，打印各阶段耗时和结果。
 
 用法:
-    uv run python scripts/run_sync.py
+    uv run python scripts/run_sync.py                    # 全量（采集+评分）
+    uv run python scripts/run_sync.py --collect-only      # 仅采集数据
+    uv run python scripts/run_sync.py --score-only        # 仅评分
     uv run python scripts/run_sync.py --date 2026-04-25   # 指定交易日
     uv run python scripts/run_sync.py --watchlist          # 仅同步自选股
 """
@@ -36,6 +38,8 @@ def _step(name, fn, *args, **kwargs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", help="指定交易日 YYYY-MM-DD，默认自动取最近交易日")
+    parser.add_argument("--collect-only", action="store_true", help="仅采集数据，跳过评分")
+    parser.add_argument("--score-only", action="store_true", help="仅评分，跳过采集")
     parser.add_argument("--watchlist", action="store_true", help="仅同步自选股，跳过 universe 全量同步")
     args = parser.parse_args()
 
@@ -52,14 +56,24 @@ def main():
     if not trade_date:
         logger.error("无法确定交易日，退出")
         return
-    logger.info(f"交易日: {trade_date}  模式: {'仅自选股' if args.watchlist else '全量'}")
+
+    mode = "仅评分" if args.score_only else ("仅采集" if args.collect_only else "全量")
+    logger.info(f"交易日: {trade_date}  模式: {mode}")
 
     t_total = time.time()
     timings: dict[str, float] = {}
 
+    # ── 评分模式 ──
+    if args.score_only:
+        session = get_db_session()
+        _, timings["scoring"] = _step("评分引擎", ScoreEngine().run, session, today=trade_date)
+        session.close()
+        _print_summary(trade_date, timings, t_total)
+        return
+
+    # ── 采集模式（含全量） ──
     session = get_db_session()
 
-    # 1. Universe / 股票池
     if args.watchlist:
         codes = {s.code for s in session.query(Stock).filter(Stock.is_watchlist == True).all()}
         logger.info(f"自选股: {len(codes)} 只")
@@ -69,7 +83,7 @@ def main():
         logger.info(f"股票池: {len(codes)} 只")
     session.close()
 
-    # 2. 并行采集
+    # 并行采集
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     collectors = [
@@ -101,12 +115,16 @@ def main():
             timings[name] = elapsed
     timings["collect_total"] = round(time.time() - t_collect, 1)
 
-    # 3. 评分
-    session = get_db_session()
-    _, timings["scoring"] = _step("评分引擎", ScoreEngine().run, session, today=trade_date)
-    session.close()
+    # 评分（全量模式 或 未指定 --collect-only）
+    if not args.collect_only:
+        session = get_db_session()
+        _, timings["scoring"] = _step("评分引擎", ScoreEngine().run, session, today=trade_date)
+        session.close()
 
-    # 汇总
+    _print_summary(trade_date, timings, t_total)
+
+
+def _print_summary(trade_date, timings, t_total):
     total = round(time.time() - t_total, 1)
     print("\n" + "=" * 50)
     print(f"  同步完成  交易日={trade_date}  总耗时={total}s")

@@ -21,7 +21,7 @@ def get_leaderboard(
     latest = _latest_date(session)
 
     score_maps: dict[str, dict[str, Score]] = {}
-    for strat in ("short_term", "trend"):
+    for strat in ("short_term", "trend", "setup"):
         score_maps[strat] = {
             s.code: s
             for s in session.query(Score).filter(Score.date == latest, Score.strategy == strat)
@@ -49,6 +49,7 @@ def get_leaderboard(
             "technical_score": primary[c].technical_score if c in primary else None,
             "capital_score": primary[c].capital_score if c in primary else None,
             "heat_score": primary[c].heat_score if c in primary else None,
+            "setup_score": primary[c].setup_score if c in primary else None,
         }
         for i, c in enumerate(ranked)
         ]
@@ -78,7 +79,10 @@ def get_stock_detail(code: str, session: Session = Depends(get_session)):
     trend = session.query(Score).filter(
         Score.code == code, Score.date == latest, Score.strategy == "trend"
     ).first()
-    if not short and not trend:
+    setup = session.query(Score).filter(
+        Score.code == code, Score.date == latest, Score.strategy == "setup"
+    ).first()
+    if not short and not trend and not setup:
         return {"error": "暂无评分数据"}
 
     trend_info = None
@@ -99,6 +103,7 @@ def get_stock_detail(code: str, session: Session = Depends(get_session)):
         "name": stock.name if stock else code,
         "short_term": _score_dict(short) if short else None,
         "trend": _score_dict(trend) if trend else None,
+        "setup": _score_dict(setup) if setup else None,
         "scores": _score_dict(trend) if trend else (_score_dict(short) if short else {}),
         "raw": {k: v for k, v in daily.__dict__.items() if not k.startswith("_")} if daily else {},
         "ai_analysis": daily.ai_analysis if daily else None,

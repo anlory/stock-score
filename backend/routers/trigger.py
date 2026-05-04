@@ -17,7 +17,8 @@ from backend.services import collect_single
 router = APIRouter(prefix="/api/trigger", tags=["trigger"])
 logger = logging.getLogger(__name__)
 
-_status = {"running": False, "last_run": None, "last_result": None}
+_collect_status = {"running": False, "last_run": None, "last_result": None}
+_score_status = {"running": False, "last_run": None, "last_result": None}
 
 
 def _run_collector(name, fn, codes, trade_date):
@@ -34,21 +35,22 @@ def _run_collector(name, fn, codes, trade_date):
         return (name, 0, str(e))
 
 
-def _run_pipeline():
-    _status["running"] = True
+def _run_collect(trade_date=None):
+    """Run data collection only (universe sync + collectors)."""
+    _collect_status["running"] = True
     t0 = time.time()
     session = get_db_session()
     try:
-        trade_date = get_last_trade_date()
+        trade_date = trade_date or get_last_trade_date()
         if not trade_date:
-            _status["last_result"] = "Error: could not determine trade date"
-            return
+            _collect_status["last_result"] = "Error: could not determine trade date"
+            return None
 
         sync_universe(session, today=trade_date)
         codes = {s.code for s in session.query(Stock).all()}
         session.close()
 
-        logger.info(f"Trade date: {trade_date}, universe: {len(codes)} stocks")
+        logger.info(f"[Collect] Trade date: {trade_date}, universe: {len(codes)} stocks")
 
         collectors = [
             ("technical", collect_technical),
@@ -66,27 +68,95 @@ def _run_pipeline():
                 if err:
                     logger.error(f"Collector {name} failed: {err}")
 
-        session = get_db_session()
-        engine = ScoreEngine()
-        count = engine.run(session, today=trade_date)
         elapsed = round(time.time() - t0)
-        _status["last_result"] = f"Scored {count} records for {trade_date} in {elapsed}s"
-        logger.info(f"Pipeline done in {elapsed}s")
+        _collect_status["last_result"] = f"Collected {len(codes)} stocks for {trade_date} in {elapsed}s"
+        logger.info(f"[Collect] done in {elapsed}s")
+        return trade_date
     except Exception as e:
-        _status["last_result"] = f"Error: {e}"
-        logger.error(f"Pipeline error: {e}", exc_info=True)
+        _collect_status["last_result"] = f"Error: {e}"
+        logger.error(f"[Collect] error: {e}", exc_info=True)
+        return None
     finally:
         if session:
             session.close()
-        _status["running"] = False
-        _status["last_run"] = datetime.now().isoformat()
+        _collect_status["running"] = False
+        _collect_status["last_run"] = datetime.now().isoformat()
+
+
+def _run_score(trade_date=None):
+    """Run scoring only."""
+    _score_status["running"] = True
+    t0 = time.time()
+    try:
+        trade_date = trade_date or get_last_trade_date()
+        if not trade_date:
+            _score_status["last_result"] = "Error: could not determine trade date"
+            return
+
+        session = get_db_session()
+        engine = ScoreEngine()
+        count = engine.run(session, today=trade_date)
+        session.close()
+        elapsed = round(time.time() - t0)
+        _score_status["last_result"] = f"Scored {count} records for {trade_date} in {elapsed}s"
+        logger.info(f"[Score] done in {elapsed}s")
+    except Exception as e:
+        _score_status["last_result"] = f"Error: {e}"
+        logger.error(f"[Score] error: {e}", exc_info=True)
+    finally:
+        _score_status["running"] = False
+        _score_status["last_run"] = datetime.now().isoformat()
+
+
+def _run_pipeline():
+    """Full pipeline: skip collection if data already exists for today."""
+    trade_date = get_last_trade_date()
+    if not trade_date:
+        _collect_status["running"] = True
+        _collect_status["last_result"] = "Error: could not determine trade date"
+        _collect_status["running"] = False
+        return
+
+    # Check if data already collected for this trade date
+    from backend.models import DailyData
+    session = get_db_session()
+    existing = session.query(DailyData).filter(DailyData.date == trade_date).count()
+    session.close()
+
+    if existing > 0:
+        logger.info(f"[Pipeline] Data already exists for {trade_date} ({existing} records), scoring only")
+        _run_score(trade_date)
+    else:
+        trade_date = _run_collect()
+        if trade_date:
+            _run_score(trade_date)
 
 
 @router.post("/collect")
 def trigger_collect():
-    if _status["running"]:
+    if _collect_status["running"]:
         return {"status": "already_running"}
     thread = threading.Thread(target=_run_pipeline, daemon=True)
+    thread.start()
+    return {"status": "started"}
+
+
+@router.post("/collect-data")
+def trigger_collect_data_only():
+    """Collect data only, skip scoring."""
+    if _collect_status["running"]:
+        return {"status": "already_running"}
+    thread = threading.Thread(target=_run_collect, daemon=True)
+    thread.start()
+    return {"status": "started"}
+
+
+@router.post("/score")
+def trigger_score():
+    """Run scoring only, using existing collected data."""
+    if _score_status["running"]:
+        return {"status": "already_running"}
+    thread = threading.Thread(target=_run_score, daemon=True)
     thread.start()
     return {"status": "started"}
 
@@ -98,4 +168,7 @@ def collect_single_endpoint(code: str):
 
 @router.get("/status")
 def get_status():
-    return _status
+    return {
+        "collect": _collect_status,
+        "score": _score_status,
+    }

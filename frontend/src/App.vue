@@ -74,9 +74,11 @@ async function doCollect() {
 
 async function poll() {
   const s = await getCollectStatus()
-  collecting.value = s.running
-  if (s.last_run) statusText.value = s.last_run.slice(5, 16)
-  if (s.running) timer = setTimeout(poll, 3000)
+  const running = s.collect?.running || s.score?.running
+  collecting.value = running
+  const lastRun = s.collect?.last_run || s.score?.last_run
+  if (lastRun) statusText.value = lastRun.slice(5, 16)
+  if (running) timer = setTimeout(poll, 3000)
 }
 
 onMounted(poll)

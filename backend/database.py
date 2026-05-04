@@ -68,6 +68,12 @@ def init_db():
         ("last_close_above_ma5", "FLOAT"),
         ("pattern_tags", "TEXT"),
     ])
+    _migrate_add_columns(engine, "strategies", [
+        ("setup_weight", "FLOAT DEFAULT 0"),
+    ])
+    _migrate_add_columns(engine, "scores", [
+        ("setup_score", "FLOAT DEFAULT 0"),
+    ])
 
 def get_session():
     """FastAPI Depends generator - yields and auto-closes session."""
@@ -109,6 +115,17 @@ def seed_strategies(session):
             "fundamental_weight": 0.0,
             "news_weight": 0.0,
             "heat_weight": 0.15,
+            "setup_weight": 0.0,
+        },
+        {
+            "name": "setup",
+            "display_name": "埋伏策略",
+            "technical_weight": 0.0,
+            "capital_weight": 0.0,
+            "fundamental_weight": 0.0,
+            "news_weight": 0.0,
+            "heat_weight": 0.0,
+            "setup_weight": 1.0,
         },
     ]
     for s in strategies:

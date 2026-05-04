@@ -5,6 +5,7 @@ from backend.scorers.capital import CapitalScorer
 from backend.scorers.fundamental import FundamentalScorer
 from backend.scorers.news import NewsScorer
 from backend.scorers.market_heat import HeatScorer
+from backend.scorers.setup import SetupScorer
 from backend.database import upsert
 from backend.models import Score, Strategy, DailyData
 
@@ -18,6 +19,7 @@ class ScoreEngine:
         self.fundamental = FundamentalScorer()
         self.news = NewsScorer()
         self.heat = HeatScorer()
+        self.setup = SetupScorer()
 
     def _build_universe_stats(self, records: list) -> dict:
         fields = [
@@ -45,6 +47,7 @@ class ScoreEngine:
             "fundamental_score": self.fundamental.score(d, stats),
             "news_score": self.news.score(d),
             "heat_score": self.heat.score(d, stats),
+            "setup_score": self.setup.score(d, stats),
         }
 
     def score_stock(self, data, universe: list, strategy) -> dict:
@@ -55,7 +58,8 @@ class ScoreEngine:
             dims["capital_score"] * strategy.capital_weight +
             dims["fundamental_score"] * strategy.fundamental_weight +
             dims["news_score"] * strategy.news_weight +
-            dims["heat_score"] * strategy.heat_weight
+            dims["heat_score"] * strategy.heat_weight +
+            dims["setup_score"] * getattr(strategy, "setup_weight", 0)
         )
         return {**dims, "total_score": round(total, 2)}
 
@@ -79,7 +83,8 @@ class ScoreEngine:
                     dims["capital_score"] * strategy.capital_weight +
                     dims["fundamental_score"] * strategy.fundamental_weight +
                     dims["news_score"] * strategy.news_weight +
-                    dims["heat_score"] * strategy.heat_weight
+                    dims["heat_score"] * strategy.heat_weight +
+                    dims["setup_score"] * getattr(strategy, "setup_weight", 0)
                 )
                 score_record = {
                     "code": record.code, "date": today, "strategy": strategy.name,
@@ -88,6 +93,7 @@ class ScoreEngine:
                     "fundamental_score": dims["fundamental_score"],
                     "news_score": dims["news_score"],
                     "heat_score": dims["heat_score"],
+                    "setup_score": dims["setup_score"],
                     "total_score": round(total, 2),
                 }
                 upsert(session, Score, score_record, ["code", "date", "strategy"])

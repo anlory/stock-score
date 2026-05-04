@@ -10,3 +10,4 @@ class Strategy(Base):
     fundamental_weight = Column(Float)
     news_weight = Column(Float)
     heat_weight = Column(Float)
+    setup_weight = Column(Float, default=0.0)

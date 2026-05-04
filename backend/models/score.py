@@ -11,4 +11,5 @@ class Score(Base):
     fundamental_score = Column(Float, default=0)
     news_score = Column(Float, default=0)
     heat_score = Column(Float, default=0)
+    setup_score = Column(Float, default=0)
     total_score = Column(Float, default=0)

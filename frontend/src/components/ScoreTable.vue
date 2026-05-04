@@ -6,7 +6,8 @@
           <th class="text-center py-3 px-3 w-12">#</th>
           <th class="text-left py-3 px-3">股票</th>
           <th class="text-center py-3 px-3 w-20">总分</th>
-          <th class="text-center py-3 px-3 w-16">技术</th>
+          <th v-if="strategy !== 'setup'" class="text-center py-3 px-3 w-16">技术</th>
+          <th v-if="strategy === 'setup'" class="text-center py-3 px-3 w-16">蓄势</th>
           <th class="text-center py-3 px-3 w-16">资金</th>
           <th class="text-center py-3 px-3 w-16">热度</th>
           <th class="text-center py-3 px-3 w-20">操作</th>
@@ -22,7 +23,8 @@
             <span class="ml-2 text-gray-600 font-mono text-xs">{{ row.code }}</span>
           </td>
           <td class="py-3 px-3 text-center font-mono font-semibold" :class="scoreColor(row.total_score)">{{ row.total_score != null ? Math.round(row.total_score) : '-' }}</td>
-          <td class="py-3 px-3 text-center font-mono text-gray-400 text-xs">{{ row.technical_score != null ? Math.round(row.technical_score) : '-' }}</td>
+          <td v-if="strategy !== 'setup'" class="py-3 px-3 text-center font-mono text-gray-400 text-xs">{{ row.technical_score != null ? Math.round(row.technical_score) : '-' }}</td>
+          <td v-if="strategy === 'setup'" class="py-3 px-3 text-center font-mono text-gray-400 text-xs">{{ row.setup_score != null ? Math.round(row.setup_score) : '-' }}</td>
           <td class="py-3 px-3 text-center font-mono text-gray-400 text-xs">{{ row.capital_score != null ? Math.round(row.capital_score) : '-' }}</td>
           <td class="py-3 px-3 text-center font-mono text-gray-400 text-xs">{{ row.heat_score != null ? Math.round(row.heat_score) : '-' }}</td>
           <td class="py-3 px-3 text-center">

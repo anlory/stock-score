@@ -4,6 +4,7 @@ from backend.scorers.capital import CapitalScorer
 from backend.scorers.fundamental import FundamentalScorer
 from backend.scorers.news import NewsScorer
 from backend.scorers.market_heat import HeatScorer
+from backend.scorers.setup import SetupScorer
 
 def test_percentile_higher():
     # (below + 0.5*equal) / N: max→90, min→10 with N=5
@@ -108,3 +109,43 @@ def test_heat_range():
             "consecutive_limit_up": 1, "sector_heat_rank": 5}
     score = HeatScorer().score(data, {})
     assert 0 <= score <= 100
+
+
+def test_setup_bottom_consolidation():
+    """Stock at bottom with shrinking volume, MA convergence, and golden cross."""
+    data = {
+        "vol_ma3": 100, "vol_ma5": 150, "vol_ma13": 200, "vol_ma30": 350,
+        "ma5": 9.8, "ma13": 9.9, "ma30": 10.0,
+        "return_60d": -18.0, "return_20d": -8.0,
+        "ma5_slope3": 0.8,
+        "last_close_above_ma5": 1,
+        "rsi14": 38.0,
+        "pattern_tags": '["MA5上穿MA13", "MACD金叉"]',
+        "main_inflow_today": 50, "main_inflow_5d": 200, "super_large_inflow": 10,
+        "turnover_rate": 1.5, "change_pct": 0.5, "volume_ratio": 0.8,
+    }
+    score = SetupScorer().score(data, UNIVERSE)
+    assert 0 <= score <= 100
+    assert score >= 70, f"bottom consolidation should score >= 70, got {score}"
+
+
+def test_setup_no_data():
+    score = SetupScorer().score({})
+    assert score == 0.0
+
+
+def test_setup_already_moved():
+    """Stock already moved up — should NOT score high on setup."""
+    data = {
+        "vol_ma3": 800, "vol_ma5": 700, "vol_ma13": 300, "vol_ma30": 250,
+        "ma5": 12.0, "ma13": 10.5, "ma30": 9.0,
+        "return_60d": 25.0, "return_20d": 15.0,
+        "ma5_slope3": 3.0,
+        "last_close_above_ma5": 1,
+        "rsi14": 72.0,
+        "pattern_tags": "[]",
+        "main_inflow_today": 1000, "main_inflow_5d": 5000, "super_large_inflow": 800,
+        "turnover_rate": 12.0, "change_pct": 7.0, "volume_ratio": 3.5,
+    }
+    score = SetupScorer().score(data, UNIVERSE)
+    assert score < 25, f"already-moved stock should score < 25, got {score}"
