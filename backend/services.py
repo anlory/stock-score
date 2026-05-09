@@ -7,6 +7,8 @@ from backend.models import Stock
 
 logger = logging.getLogger(__name__)
 
+_A_SHARE_MARKETS = {"SH", "SZ", "BJ"}
+
 
 def fetch_stock_from_tencent(code: str) -> dict | None:
     """Fetch stock name from Tencent Finance API."""
@@ -30,7 +32,7 @@ def fetch_stock_from_tencent(code: str) -> dict | None:
 
 
 def search_stock(q: str, session) -> list[dict]:
-    """Search local DB first, fallback to Tencent API."""
+    """Search local DB first, fallback to Tencent API for digit-only codes (A-shares)."""
     q = q.strip()
     if not q:
         return []
@@ -39,14 +41,16 @@ def search_stock(q: str, session) -> list[dict]:
     ).limit(10).all()
     if local:
         return [{"code": s.code, "name": s.name, "market": s.market} for s in local]
-    result = fetch_stock_from_tencent(q)
-    if result:
-        upsert(session, Stock, {
-            "code": result["code"], "name": result["name"],
-            "market": result["market"], "is_watchlist": False, "index_tags": "[]",
-        }, ["code"])
-        session.commit()
-        return [result]
+    # Only try Tencent fallback for digit-only queries (A-shares)
+    if q.isdigit():
+        result = fetch_stock_from_tencent(q)
+        if result:
+            upsert(session, Stock, {
+                "code": result["code"], "name": result["name"],
+                "market": result["market"], "is_watchlist": False, "index_tags": "[]",
+            }, ["code"])
+            session.commit()
+            return [result]
     return []
 
 
@@ -96,39 +100,70 @@ def fetch_sectors(session) -> list[dict]:
 
 def collect_single(code: str) -> dict:
     """Collect data and score for a single stock. Returns status dict."""
-    code = code.zfill(6)
+    # Don't zfill for non-digit codes (US tickers like AAPL)
+    if code.isdigit():
+        code = code.zfill(6)
+
     session = get_db_session()
     try:
         stock = session.query(Stock).get(code)
         if not stock:
             return {"status": "error", "message": "Stock not in database"}
 
+        market = stock.market or ""
         target = {code}
 
-        from backend.collectors.profile import fetch_profile
-        try:
-            fetch_profile(session, code)
-        except Exception as e:
-            logger.warning(f"profile collect failed for {code}: {e}")
-
-        from backend.collectors.technical import collect_technical
-        from backend.collectors.capital import collect_capital
-        from backend.collectors.fundamental import collect_fundamental
-        from backend.collectors.news import collect_news
-        from backend.collectors.market_heat import collect_market_heat
-
-        collectors = [
-            ("technical", collect_technical),
-            ("capital", collect_capital),
-            ("fundamental", collect_fundamental),
-            ("news", collect_news),
-            ("market_heat", collect_market_heat),
-        ]
-        for name, fn in collectors:
+        if market in _A_SHARE_MARKETS:
+            # A-share collection path
+            from backend.collectors.profile import fetch_profile
             try:
-                fn(session, target)
+                fetch_profile(session, code)
             except Exception as e:
-                logger.warning(f"[{name}] collect failed for {code}: {e}")
+                logger.warning(f"profile collect failed for {code}: {e}")
+
+            from backend.collectors.technical import collect_technical
+            from backend.collectors.capital import collect_capital
+            from backend.collectors.fundamental import collect_fundamental
+            from backend.collectors.news import collect_news
+            from backend.collectors.market_heat import collect_market_heat
+
+            collectors = [
+                ("technical", collect_technical),
+                ("capital", collect_capital),
+                ("fundamental", collect_fundamental),
+                ("news", collect_news),
+                ("market_heat", collect_market_heat),
+            ]
+            for name, fn in collectors:
+                try:
+                    fn(session, target)
+                except Exception as e:
+                    logger.warning(f"[{name}] collect failed for {code}: {e}")
+        else:
+            # HK/US collection path
+            from backend.collectors.hk_us.profile import fetch_hk_us_profile
+            try:
+                fetch_hk_us_profile(session, code)
+            except Exception as e:
+                logger.warning(f"HK/US profile collect failed for {code}: {e}")
+
+            from backend.collectors.hk_us.technical import collect_hk_us_technical
+            from backend.collectors.hk_us.fundamental import collect_hk_us_fundamental
+            from backend.collectors.hk_us.market_heat import collect_hk_us_heat
+            from backend.collectors.hk_us.news import collect_hk_us_news
+
+            hk_us_codes = {code: market}
+            hk_us_collectors = [
+                ("hk_us_technical", lambda s, c, t: collect_hk_us_technical(s, hk_us_codes, t)),
+                ("hk_us_fundamental", lambda s, c, t: collect_hk_us_fundamental(s, hk_us_codes, t)),
+                ("hk_us_heat", lambda s, c, t: collect_hk_us_heat(s, hk_us_codes, t)),
+                ("hk_us_news", lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
+            ]
+            for name, fn in hk_us_collectors:
+                try:
+                    fn(session, target, None)
+                except Exception as e:
+                    logger.warning(f"[{name}] collect failed for {code}: {e}")
 
         from backend.models import DailyData, Score, Strategy
         from backend.engine import ScoreEngine
@@ -137,10 +172,13 @@ def collect_single(code: str) -> dict:
         records = session.query(DailyData).filter(DailyData.code == code, DailyData.date == today).all()
         if records:
             universe = [r.__dict__ for r in records]
+            # Attach market to each record
+            for r in universe:
+                r["market"] = market
             engine = ScoreEngine()
             strategies = session.query(Strategy).all()
             for strategy in strategies:
-                scores = engine.score_stock(records[0], universe, strategy)
+                scores = engine.score_stock(records[0], universe, strategy, market=market)
                 upsert(session, Score, {
                     "code": code, "date": today, "strategy": strategy.name,
                     **scores,

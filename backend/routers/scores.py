@@ -7,6 +7,9 @@ from backend.models import Score, Stock, DailyData
 
 router = APIRouter(prefix="/api/scores", tags=["scores"])
 
+_A_SHARE_MARKETS = {"SH", "SZ", "BJ"}
+
+
 def _latest_date(session):
     row = session.query(Score).order_by(Score.date.desc()).first()
     return row.date if row else date.today().isoformat()
@@ -16,6 +19,7 @@ def _latest_date(session):
 def get_leaderboard(
     type: str = Query("other"),
     strategy: str = Query("short_term"),
+    market: str = Query(None),
     session: Session = Depends(get_session),
 ):
     latest = _latest_date(session)
@@ -36,6 +40,10 @@ def get_leaderboard(
     if type == "watchlist":
         all_codes = {c for c in all_codes if stocks[c].is_watchlist}
 
+    # Filter by market if specified
+    if market:
+        all_codes = {c for c in all_codes if stocks[c].market == market}
+
     primary = score_maps.get(strategy, {})
     ranked = sorted(all_codes, key=lambda c: primary[c].total_score if c in primary else 0, reverse=True)[:200]
 
@@ -50,6 +58,7 @@ def get_leaderboard(
             "capital_score": primary[c].capital_score if c in primary else None,
             "heat_score": primary[c].heat_score if c in primary else None,
             "setup_score": primary[c].setup_score if c in primary else None,
+            "market": stocks[c].market if c in stocks else None,
         }
         for i, c in enumerate(ranked)
         ]
@@ -68,19 +77,28 @@ def _score_dict(s):
 @router.get("/{code}")
 def get_stock_detail(code: str, session: Session = Depends(get_session)):
     latest = _latest_date(session)
-    code = code.zfill(6)
+
+    # Try code as-is first, then zfill(6) for digit codes
     stock = session.get(Stock, code)
+    if stock:
+        lookup_code = code
+    elif code.isdigit():
+        lookup_code = code.zfill(6)
+        stock = session.get(Stock, lookup_code)
+    else:
+        lookup_code = code
+
     daily = session.query(DailyData).filter(
-        DailyData.code == code, DailyData.date == latest
+        DailyData.code == lookup_code, DailyData.date == latest
     ).first()
     short = session.query(Score).filter(
-        Score.code == code, Score.date == latest, Score.strategy == "short_term"
+        Score.code == lookup_code, Score.date == latest, Score.strategy == "short_term"
     ).first()
     trend = session.query(Score).filter(
-        Score.code == code, Score.date == latest, Score.strategy == "trend"
+        Score.code == lookup_code, Score.date == latest, Score.strategy == "trend"
     ).first()
     setup = session.query(Score).filter(
-        Score.code == code, Score.date == latest, Score.strategy == "setup"
+        Score.code == lookup_code, Score.date == latest, Score.strategy == "setup"
     ).first()
     if not short and not trend and not setup:
         return {"error": "暂无评分数据"}
@@ -99,8 +117,9 @@ def get_stock_detail(code: str, session: Session = Depends(get_session)):
         }
 
     return {
-        "code": code,
-        "name": stock.name if stock else code,
+        "code": lookup_code,
+        "name": stock.name if stock else lookup_code,
+        "market": stock.market if stock else None,
         "short_term": _score_dict(short) if short else None,
         "trend": _score_dict(trend) if trend else None,
         "setup": _score_dict(setup) if setup else None,
@@ -116,11 +135,18 @@ def get_score_history(
     days: int = Query(30, ge=7, le=365),
     session: Session = Depends(get_session),
 ):
-    code = code.zfill(6)
+    # Try code as-is first, then zfill(6) for digit codes
+    lookup_code = code
+    if code.isdigit():
+        stock = session.get(Stock, code)
+        if not stock:
+            lookup_code = code.zfill(6)
+            stock = session.get(Stock, lookup_code)
+
     since = (date.today() - timedelta(days=days)).isoformat()
     records = (
         session.query(Score)
-        .filter(Score.code == code, Score.strategy == strategy, Score.date >= since)
+        .filter(Score.code == lookup_code, Score.strategy == strategy, Score.date >= since)
         .order_by(Score.date.asc()).all()
     )
     return [
