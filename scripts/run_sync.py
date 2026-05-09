@@ -154,6 +154,15 @@ def main():
         hk_us_stocks = session.query(Stock).filter(
             ~Stock.market.in_(["SH", "SZ", "BJ"]),
         ).all()
+
+        # 如果港美股股票池为空，先同步成分股
+        if not hk_us_stocks:
+            from backend.collectors.hk_us.universe import sync_hk_us_universe
+            logger.info("港美股股票池为空，先同步成分股...")
+            _, timings["universe_hk_us"] = _step("港美股 Universe 同步", sync_hk_us_universe, session)
+            hk_us_stocks = session.query(Stock).filter(
+                ~Stock.market.in_(["SH", "SZ", "BJ"]),
+            ).all()
         session.close()
 
         if hk_us_stocks:
