@@ -104,15 +104,11 @@ def _run_collect(trade_date=None, target=None):
                     ("hk_us_news", lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
                 ]
 
-                with ThreadPoolExecutor(max_workers=4) as pool:
-                    futures = {
-                        pool.submit(_run_collector, name, fn, None, trade_date): name
-                        for name, fn in hk_us_collectors
-                    }
-                    for future in as_completed(futures):
-                        name, count, err = future.result()
-                        if err:
-                            logger.error(f"HK/US collector {name} failed: {err}")
+                # 串行执行避免 yfinance 全局限流
+                for name, fn in hk_us_collectors:
+                    _, count, err = _run_collector(name, fn, None, trade_date)
+                    if err:
+                        logger.error(f"HK/US collector {name} failed: {err}")
 
         elapsed = round(time.time() - t0)
         _collect_status["last_result"] = f"Collected {len(codes)} stocks for {trade_date} in {elapsed}s"

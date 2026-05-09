@@ -175,13 +175,11 @@ def main():
                 ("hk_us_heat",         lambda s, c, today=None: collect_hk_us_heat(s, hk_us_codes, today)),
                 ("hk_us_news",         lambda s, c, today=None: collect_hk_us_news(s, hk_us_codes, today)),
             ]
-            logger.info(">>> 港美股并行采集开始")
+            # 串行执行避免 yfinance 全局限流
+            logger.info(">>> 港美股采集开始（串行）")
             t_hk = time.time()
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = {pool.submit(_run, name, fn, None): name for name, fn in hk_us_collectors}
-                for f in as_completed(futures):
-                    name, elapsed = f.result()
-                    timings[name] = elapsed
+            for name, fn in hk_us_collectors:
+                _, timings[name] = _run(name, fn, None)
             timings["hk_us_collect_total"] = round(time.time() - t_hk, 1)
 
     # 评分（全量模式 或 未指定 --collect-only）
