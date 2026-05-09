@@ -10,6 +10,10 @@ from backend.collectors.universe import sync_universe
 from backend.collectors.technical import collect_technical
 from backend.collectors.capital import collect_capital
 from backend.collectors.market_heat import collect_market_heat
+from backend.collectors.hk_us.technical import collect_hk_us_technical
+from backend.collectors.hk_us.fundamental import collect_hk_us_fundamental
+from backend.collectors.hk_us.market_heat import collect_hk_us_heat
+from backend.collectors.hk_us.news import collect_hk_us_news
 from backend.engine import ScoreEngine
 from backend.models import Stock
 from backend.services import collect_single
@@ -67,6 +71,39 @@ def _run_collect(trade_date=None):
                 name, count, err = future.result()
                 if err:
                     logger.error(f"Collector {name} failed: {err}")
+
+        # HK/US stock collection
+        hk_session = get_db_session()
+        try:
+            hk_us_stocks = hk_session.query(Stock).filter(
+                ~Stock.market.in_(["SH", "SZ", "BJ"])
+            ).all()
+        except Exception:
+            hk_us_stocks = []
+        finally:
+            hk_session.close()
+
+        if hk_us_stocks:
+            hk_us_codes = {s.code: s.market for s in hk_us_stocks}
+
+            logger.info(f"[Collect] HK/US: {len(hk_us_codes)} stocks")
+
+            hk_us_collectors = [
+                ("hk_us_technical", lambda s, c, t: collect_hk_us_technical(s, hk_us_codes, t)),
+                ("hk_us_fundamental", lambda s, c, t: collect_hk_us_fundamental(s, hk_us_codes, t)),
+                ("hk_us_heat", lambda s, c, t: collect_hk_us_heat(s, hk_us_codes, t)),
+                ("hk_us_news", lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
+            ]
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = {
+                    pool.submit(_run_collector, name, fn, None, trade_date): name
+                    for name, fn in hk_us_collectors
+                }
+                for future in as_completed(futures):
+                    name, count, err = future.result()
+                    if err:
+                        logger.error(f"HK/US collector {name} failed: {err}")
 
         elapsed = round(time.time() - t0)
         _collect_status["last_result"] = f"Collected {len(codes)} stocks for {trade_date} in {elapsed}s"

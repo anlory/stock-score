@@ -4,6 +4,7 @@ from datetime import date
 from backend.collectors.tushare_client import get_pro, to_ts_date, ts_call
 from backend.collectors import tushare_client
 from backend.collectors.base import query_wencai, normalize_code
+from backend.collectors.hk_us.universe import sync_hk_us_universe
 from backend.database import upsert
 from backend.models import Stock
 
@@ -161,8 +162,19 @@ def sync_universe(session, watchlist_codes: list[str] = None, today: str = None)
 
     session.commit()
 
+    # 3.5 HK/US index sync
+    try:
+        hk_us_count = sync_hk_us_universe(session)
+        logger.info(f"HK/US sync: {hk_us_count} stocks")
+    except Exception as e:
+        logger.error(f"HK/US universe sync failed: {e}")
+
     # 4. Remove stale stocks not in index and not watchlisted
     valid_codes = set(index_stocks.keys())
+    hk_us_stocks = session.query(Stock).filter(
+        ~Stock.market.in_(["SH", "SZ", "BJ"])
+    ).all()
+    valid_codes.update(s.code for s in hk_us_stocks)
     for wl in (watchlist_codes or []):
         valid_codes.add(wl.zfill(6))
     stale = session.query(Stock).filter(
