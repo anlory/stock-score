@@ -4,6 +4,7 @@
 import io
 import json
 import logging
+from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
@@ -13,6 +14,8 @@ from backend.database import upsert
 from backend.models import Stock
 
 logger = logging.getLogger(__name__)
+
+_STATIC_DIR = Path(__file__).parent.parent.parent / "data" / "static"
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
@@ -314,6 +317,24 @@ def _fetch_us_stocks() -> dict[str, dict]:
     logger.info(f"NASDAQ 100: {len(ndx)} stocks")
 
     for tag, stocks in [("sp500", sp500), ("nasdaq100", ndx)]:
+        if not stocks:
+            # Last resort: try static CSV in data/static/
+            csv_path = _STATIC_DIR / f"{tag}.csv"
+            if csv_path.exists():
+                logger.info(f"Using static fallback: {csv_path}")
+                df = pd.read_csv(csv_path)
+                for _, row in df.iterrows():
+                    symbol = str(row.get("Symbol", row.get("code", ""))).strip()
+                    if not symbol:
+                        continue
+                    stocks.append({
+                        "code": symbol,
+                        "name": str(row.get("Name", row.get("name", symbol))),
+                        "industry": str(row.get("Sector", row.get("industry", ""))),
+                        "market": "US",
+                        "tag": tag,
+                    })
+                logger.info(f"{tag} (static): {len(stocks)} stocks")
         for s in stocks:
             code = s["code"]
             if code not in all_stocks:

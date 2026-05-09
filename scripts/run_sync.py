@@ -170,10 +170,10 @@ def main():
             logger.info(f"港美股股票池: {len(hk_us_codes)} 只")
 
             hk_us_collectors = [
-                ("hk_us_technical",    lambda s, c, t: collect_hk_us_technical(s, hk_us_codes, t)),
-                ("hk_us_fundamental",  lambda s, c, t: collect_hk_us_fundamental(s, hk_us_codes, t)),
-                ("hk_us_heat",         lambda s, c, t: collect_hk_us_heat(s, hk_us_codes, t)),
-                ("hk_us_news",         lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
+                ("hk_us_technical",    lambda s, c, today=None: collect_hk_us_technical(s, hk_us_codes, today)),
+                ("hk_us_fundamental",  lambda s, c, today=None: collect_hk_us_fundamental(s, hk_us_codes, today)),
+                ("hk_us_heat",         lambda s, c, today=None: collect_hk_us_heat(s, hk_us_codes, today)),
+                ("hk_us_news",         lambda s, c, today=None: collect_hk_us_news(s, hk_us_codes, today)),
             ]
             logger.info(">>> 港美股并行采集开始")
             t_hk = time.time()
