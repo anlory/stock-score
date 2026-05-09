@@ -24,7 +24,9 @@
       <div class="flex items-center gap-4 mb-6">
         <h1 class="text-2xl font-bold">{{ data.name }}</h1>
         <span class="font-mono text-gray-400">{{ data.code }}</span>
-          <a :href="`https://stockpage.10jqka.com.cn/${data.code}/`" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">同花顺 ↗</a>
+          <a v-if="stockMarket === 'US'" :href="`https://finance.yahoo.com/quote/${data.code}`" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">Yahoo Finance ↗</a>
+          <a v-else-if="stockMarket === 'HK'" :href="`https://finance.yahoo.com/quote/${String(parseInt(data.code)).padStart(4, '0')}.HK`" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">Yahoo Finance ↗</a>
+          <a v-else :href="`https://stockpage.10jqka.com.cn/${data.code}/`" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">同花顺 ↗</a>
         <div class="ml-auto flex items-center gap-3">
           <button v-if="isWatchlist" @click="removeWatch" class="text-xs border border-gray-600 text-gray-400 px-3 py-1 rounded hover:text-red-400 hover:border-red-400 transition-colors">已加自选</button>
           <button v-else @click="addWatch" class="text-xs border border-amber-600 text-amber-400 px-3 py-1 rounded hover:bg-amber-900/30 transition-colors">+ 自选</button>
@@ -204,6 +206,7 @@ const showFullBiz = ref(false)
 const showRaw = ref(false)
 const isWatchlist = ref(false)
 const collectLoading = ref(false)
+const stockMarket = ref('SH')
 
 const trendInfo = computed(() => data.value?.trend_info || null)
 const displayAnalysis = computed(() => {
@@ -250,7 +253,10 @@ async function load() {
     checkWatchlist(code),
   ])
   if (detail.status === 'fulfilled') data.value = detail.value
-  if (prof.status === 'fulfilled') profile.value = prof.value
+  if (prof.status === 'fulfilled' && prof.value) {
+    profile.value = prof.value
+    stockMarket.value = prof.value.market || 'SH'
+  }
   if (watched.status === 'fulfilled') isWatchlist.value = watched.value
   aiResult.value = ''
   aiError.value = ''
