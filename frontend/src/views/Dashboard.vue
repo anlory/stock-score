@@ -1,11 +1,26 @@
 <template>
-  <!-- 港美股占位 -->
-  <div v-if="route.path === '/hk'" class="flex items-center justify-center" style="min-height:60vh">
-    <div class="text-center">
-      <div class="text-gray-600 text-4xl mb-3">🚧</div>
-      <div class="text-gray-400 text-base font-medium">港美股功能即将上线</div>
-      <div class="text-gray-600 text-sm mt-1">敬请期待</div>
+  <!-- 港美股 -->
+  <div v-if="isHKUS" class="p-6">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex gap-5 border-b border-gray-800">
+        <button v-for="t in hkUsTabs" :key="t.value"
+          @click="hkUsTab = t.value"
+          class="pb-2 text-sm font-medium border-b-2 transition-colors"
+          :class="hkUsTab === t.value ? 'border-amber-400 text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
+          {{ t.label }}
+        </button>
+      </div>
+      <div class="flex gap-3 border-b border-gray-800">
+        <button v-for="s in strategyTabs" :key="s.value"
+          @click="strategy = s.value"
+          class="pb-2 text-sm font-medium border-b-2 transition-colors"
+          :class="strategy === s.value ? 'border-amber-400 text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
+          {{ s.label }}
+        </button>
+      </div>
     </div>
+    <ScoreTable :rows="rows" :strategy="strategy" />
+    <div v-if="!rows.length && !loading" class="text-center py-12 text-gray-600">暂无数据，请先触发同步</div>
   </div>
 
   <!-- A股 / 自选 -->
@@ -53,14 +68,32 @@ const rows = shallowRef([])
 const loading = ref(false)
 const showGuide = ref(false)
 
-const strategyTabs = [
-  { value: 'short_term', label: '短线策略' },
-  { value: 'trend', label: '趋势策略' },
-  { value: 'setup', label: '埋伏策略' },
+const isHKUS = computed(() => route.path === '/hk')
+
+const hkUsTabs = [
+  { value: 'hsi', label: '恒生指数', market: 'HK' },
+  { value: 'hstech', label: '恒生科技', market: 'HK' },
+  { value: 'sp500', label: 'S&P 500', market: 'US' },
+  { value: 'nasdaq100', label: '纳斯达克100', market: 'US' },
 ]
+const hkUsTab = ref('hsi')
+
+const strategyTabs = computed(() => {
+  if (isHKUS.value) {
+    return [
+      { value: 'short_term', label: '短线策略' },
+      { value: 'trend', label: '趋势策略' },
+    ]
+  }
+  return [
+    { value: 'short_term', label: '短线策略' },
+    { value: 'trend', label: '趋势策略' },
+    { value: 'setup', label: '埋伏策略' },
+  ]
+})
 
 const currentStrategyLabel = computed(() =>
-  strategyTabs.find(s => s.value === strategy.value)?.label || ''
+  strategyTabs.value.find(s => s.value === strategy.value)?.label || ''
 )
 
 const strategyDescriptions = {
@@ -88,21 +121,28 @@ const strategyDimensions = {
 }
 const currentDimensions = computed(() => strategyDimensions[strategy.value] || [])
 
-function getLeaderboardType() {
-  return route.path === '/watchlist' ? 'watchlist' : 'other'
+function getMarketFilter() {
+  if (!isHKUS.value) return undefined
+  const tab = hkUsTabs.find(t => t.value === hkUsTab.value)
+  return tab?.market
 }
 
 async function load() {
-  if (route.path === '/hk') return
+  if (isHKUS.value && !hkUsTab.value) return
   loading.value = true
   try {
-    const res = await getLeaderboard(getLeaderboardType(), strategy.value)
+    const res = await getLeaderboard(
+      isHKUS.value ? 'other' : (route.path === '/watchlist' ? 'watchlist' : 'other'),
+      strategy.value,
+      getMarketFilter()
+    )
     rows.value = res.stocks || []
   } catch { rows.value = [] }
   loading.value = false
 }
 
 watch(strategy, load)
-watch(() => route.path, () => { if (route.path !== '/hk') load() })
+watch(hkUsTab, load)
+watch(() => route.path, load)
 onMounted(load)
 </script>

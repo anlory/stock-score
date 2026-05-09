@@ -2,8 +2,8 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
-export const getLeaderboard = (type, strategy) =>
-  api.get('/scores/leaderboard', { params: { type, strategy } }).then(r => r.data)
+export const getLeaderboard = (type, strategy, market) =>
+  api.get('/scores/leaderboard', { params: { type, strategy, market: market || undefined } }).then(r => r.data)
 
 export const getStockDetail = (code, strategy) =>
   api.get(`/scores/${code}`, { params: { strategy } }).then(r => r.data)
