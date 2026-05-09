@@ -20,8 +20,8 @@ export const addWatchlist = (code, name) =>
 export const removeWatchlist = (code) =>
   api.delete(`/stocks/watchlist/${code}`).then(r => r.data)
 
-export const triggerCollect = () =>
-  api.post('/trigger/collect').then(r => r.data)
+export const triggerCollect = (market) =>
+  api.post('/trigger/collect', null, { params: { market: market || undefined } }).then(r => r.data)
 
 export const getCollectStatus = () =>
   api.get('/trigger/status').then(r => r.data)

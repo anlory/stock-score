@@ -68,7 +68,8 @@ function onBlur() {
 
 async function doCollect() {
   collecting.value = true
-  await triggerCollect()
+  const market = route.path === '/hk' ? 'hk_us' : undefined
+  await triggerCollect(market)
   poll()
 }
 

@@ -39,8 +39,10 @@ def _run_collector(name, fn, codes, trade_date):
         return (name, 0, str(e))
 
 
-def _run_collect(trade_date=None):
-    """Run data collection only (universe sync + collectors)."""
+def _run_collect(trade_date=None, target=None):
+    """Run data collection only (universe sync + collectors).
+    target: None (all), 'a' (A-share only), 'hk_us' (HK/US only)
+    """
     _collect_status["running"] = True
     t0 = time.time()
     session = get_db_session()
@@ -50,60 +52,67 @@ def _run_collect(trade_date=None):
             _collect_status["last_result"] = "Error: could not determine trade date"
             return None
 
-        sync_universe(session, today=trade_date)
-        codes = {s.code for s in session.query(Stock).all()}
-        session.close()
+        # A-share collection
+        if target is None or target == "a":
+            sync_universe(session, today=trade_date)
+            codes = {s.code for s in session.query(Stock).filter(
+                Stock.market.in_(["SH", "SZ", "BJ"]),
+            ).all()}
+            session.close()
 
-        logger.info(f"[Collect] Trade date: {trade_date}, universe: {len(codes)} stocks")
+            logger.info(f"[Collect] Trade date: {trade_date}, A-share: {len(codes)} stocks")
 
-        collectors = [
-            ("technical", collect_technical),
-            ("capital", collect_capital),
-            ("market_heat", collect_market_heat),
-        ]
-
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            futures = {
-                pool.submit(_run_collector, name, fn, codes, trade_date): name
-                for name, fn in collectors
-            }
-            for future in as_completed(futures):
-                name, count, err = future.result()
-                if err:
-                    logger.error(f"Collector {name} failed: {err}")
-
-        # HK/US stock collection
-        hk_session = get_db_session()
-        try:
-            hk_us_stocks = hk_session.query(Stock).filter(
-                ~Stock.market.in_(["SH", "SZ", "BJ"])
-            ).all()
-        except Exception:
-            hk_us_stocks = []
-        finally:
-            hk_session.close()
-
-        if hk_us_stocks:
-            hk_us_codes = {s.code: s.market for s in hk_us_stocks}
-
-            logger.info(f"[Collect] HK/US: {len(hk_us_codes)} stocks")
-
-            hk_us_collectors = [
-                ("hk_us_technical", lambda s, c, t: collect_hk_us_technical(s, hk_us_codes, t)),
-                ("hk_us_fundamental", lambda s, c, t: collect_hk_us_fundamental(s, hk_us_codes, t)),
-                ("hk_us_heat", lambda s, c, t: collect_hk_us_heat(s, hk_us_codes, t)),
-                ("hk_us_news", lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
+            collectors = [
+                ("technical", collect_technical),
+                ("capital", collect_capital),
+                ("market_heat", collect_market_heat),
             ]
 
-            with ThreadPoolExecutor(max_workers=4) as pool:
+            with ThreadPoolExecutor(max_workers=6) as pool:
                 futures = {
-                    pool.submit(_run_collector, name, fn, None, trade_date): name
-                    for name, fn in hk_us_collectors
+                    pool.submit(_run_collector, name, fn, codes, trade_date): name
+                    for name, fn in collectors
                 }
                 for future in as_completed(futures):
                     name, count, err = future.result()
                     if err:
-                        logger.error(f"HK/US collector {name} failed: {err}")
+                        logger.error(f"Collector {name} failed: {err}")
+        else:
+            session.close()
+
+        # HK/US stock collection
+        if target is None or target == "hk_us":
+            hk_session = get_db_session()
+            try:
+                hk_us_stocks = hk_session.query(Stock).filter(
+                    ~Stock.market.in_(["SH", "SZ", "BJ"])
+                ).all()
+            except Exception:
+                hk_us_stocks = []
+            finally:
+                hk_session.close()
+
+            if hk_us_stocks:
+                hk_us_codes = {s.code: s.market for s in hk_us_stocks}
+
+                logger.info(f"[Collect] HK/US: {len(hk_us_codes)} stocks")
+
+                hk_us_collectors = [
+                    ("hk_us_technical", lambda s, c, t: collect_hk_us_technical(s, hk_us_codes, t)),
+                    ("hk_us_fundamental", lambda s, c, t: collect_hk_us_fundamental(s, hk_us_codes, t)),
+                    ("hk_us_heat", lambda s, c, t: collect_hk_us_heat(s, hk_us_codes, t)),
+                    ("hk_us_news", lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
+                ]
+
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = {
+                        pool.submit(_run_collector, name, fn, None, trade_date): name
+                        for name, fn in hk_us_collectors
+                    }
+                    for future in as_completed(futures):
+                        name, count, err = future.result()
+                        if err:
+                            logger.error(f"HK/US collector {name} failed: {err}")
 
         elapsed = round(time.time() - t0)
         _collect_status["last_result"] = f"Collected {len(codes)} stocks for {trade_date} in {elapsed}s"
@@ -145,7 +154,7 @@ def _run_score(trade_date=None):
         _score_status["last_run"] = datetime.now().isoformat()
 
 
-def _run_pipeline():
+def _run_pipeline(target=None):
     """Full pipeline: skip collection if data already exists for today."""
     trade_date = get_last_trade_date()
     if not trade_date:
@@ -164,16 +173,23 @@ def _run_pipeline():
         logger.info(f"[Pipeline] Data already exists for {trade_date} ({existing} records), scoring only")
         _run_score(trade_date)
     else:
-        trade_date = _run_collect()
+        trade_date = _run_collect(target=target)
         if trade_date:
             _run_score(trade_date)
 
 
 @router.post("/collect")
-def trigger_collect():
+def trigger_collect(market: str = None):
+    """Full pipeline. Optional market filter: 'a', 'hk_us'."""
     if _collect_status["running"]:
         return {"status": "already_running"}
-    thread = threading.Thread(target=_run_pipeline, daemon=True)
+
+    if market == "a":
+        thread = threading.Thread(target=lambda: _run_collect(target="a"), daemon=True)
+    elif market == "hk_us":
+        thread = threading.Thread(target=lambda: _run_collect(target="hk_us"), daemon=True)
+    else:
+        thread = threading.Thread(target=_run_pipeline, daemon=True)
     thread.start()
     return {"status": "started"}
 

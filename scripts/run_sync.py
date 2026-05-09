@@ -2,11 +2,13 @@
 手动触发数据同步/评分，打印各阶段耗时和结果。
 
 用法:
-    uv run python scripts/run_sync.py                    # 全量（采集+评分）
+    uv run python scripts/run_sync.py                    # 全量 A股+港美股（采集+评分）
     uv run python scripts/run_sync.py --collect-only      # 仅采集数据
     uv run python scripts/run_sync.py --score-only        # 仅评分
     uv run python scripts/run_sync.py --date 2026-04-25   # 指定交易日
     uv run python scripts/run_sync.py --watchlist          # 仅同步自选股
+    uv run python scripts/run_sync.py --a-stock            # 仅 A 股
+    uv run python scripts/run_sync.py --hk-us              # 仅港美股
 """
 import sys
 import os
@@ -41,6 +43,8 @@ def main():
     parser.add_argument("--collect-only", action="store_true", help="仅采集数据，跳过评分")
     parser.add_argument("--score-only", action="store_true", help="仅评分，跳过采集")
     parser.add_argument("--watchlist", action="store_true", help="仅同步自选股，跳过 universe 全量同步")
+    parser.add_argument("--a-stock", action="store_true", help="仅同步 A 股")
+    parser.add_argument("--hk-us", action="store_true", help="仅同步港美股")
     args = parser.parse_args()
 
     from backend.collectors.tushare_client import get_last_trade_date
@@ -48,6 +52,10 @@ def main():
     from backend.collectors.technical import collect_technical
     from backend.collectors.capital import collect_capital
     from backend.collectors.market_heat import collect_market_heat
+    from backend.collectors.hk_us.technical import collect_hk_us_technical
+    from backend.collectors.hk_us.fundamental import collect_hk_us_fundamental
+    from backend.collectors.hk_us.market_heat import collect_hk_us_heat
+    from backend.collectors.hk_us.news import collect_hk_us_news
     from backend.engine import ScoreEngine
     from backend.database import get_db_session
     from backend.models import Stock
@@ -57,7 +65,26 @@ def main():
         logger.error("无法确定交易日，退出")
         return
 
-    mode = "仅评分" if args.score_only else ("仅采集" if args.collect_only else "全量")
+    do_a = not args.hk_us          # 默认做 A 股，除非指定 --hk-us
+    do_hk_us = not args.a_stock    # 默认做港美股，除非指定 --a-stock
+    do_watchlist = args.watchlist
+
+    if do_watchlist:
+        mode = "自选股"
+        do_a = True
+        do_hk_us = False
+    elif do_a and do_hk_us:
+        mode = "全量(A股+港美股)"
+    elif do_a:
+        mode = "仅A股"
+    else:
+        mode = "仅港美股"
+
+    if args.score_only:
+        mode = "仅评分"
+    elif args.collect_only:
+        mode += " 仅采集"
+
     logger.info(f"交易日: {trade_date}  模式: {mode}")
 
     t_total = time.time()
@@ -71,34 +98,16 @@ def main():
         _print_summary(trade_date, timings, t_total)
         return
 
-    # ── 采集模式（含全量） ──
-    session = get_db_session()
-
-    if args.watchlist:
-        codes = {s.code for s in session.query(Stock).filter(Stock.is_watchlist == True).all()}
-        logger.info(f"自选股: {len(codes)} 只")
-    else:
-        _, timings["universe"] = _step("Universe 同步", sync_universe, session, today=trade_date)
-        codes = {s.code for s in session.query(Stock).all()}
-        logger.info(f"股票池: {len(codes)} 只")
-    session.close()
-
-    # 并行采集
+    # ── 采集模式 ──
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    collectors = [
-        ("technical",   collect_technical),
-        ("capital",     collect_capital),
-        ("market_heat", collect_market_heat),
-    ]
-
-    def _run(name, fn):
+    def _run(name, fn, codes_arg):
         t = time.time()
         s = get_db_session()
         try:
-            count = fn(s, codes, today=trade_date)
+            count = fn(s, codes_arg, today=trade_date)
             elapsed = round(time.time() - t, 1)
-            logger.info(f"<<< {name:12s} 完成  count={count}  耗时={elapsed}s")
+            logger.info(f"<<< {name:20s} 完成  count={count}  耗时={elapsed}s")
             return name, elapsed
         except Exception as e:
             logger.error(f"[{name}] 失败: {e}", exc_info=True)
@@ -106,14 +115,65 @@ def main():
         finally:
             s.close()
 
-    logger.info(">>> 并行采集开始")
-    t_collect = time.time()
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {pool.submit(_run, name, fn): name for name, fn in collectors}
-        for f in as_completed(futures):
-            name, elapsed = f.result()
-            timings[name] = elapsed
-    timings["collect_total"] = round(time.time() - t_collect, 1)
+    # ── A 股采集 ──
+    if do_a:
+        session = get_db_session()
+
+        if do_watchlist:
+            a_codes = {s.code for s in session.query(Stock).filter(
+                Stock.is_watchlist == True,
+                Stock.market.in_(["SH", "SZ", "BJ"]),
+            ).all()}
+            logger.info(f"A 股自选: {len(a_codes)} 只")
+        else:
+            _, timings["universe_a"] = _step("A 股 Universe 同步", sync_universe, session, today=trade_date)
+            a_codes = {s.code for s in session.query(Stock).filter(
+                Stock.market.in_(["SH", "SZ", "BJ"]),
+            ).all()}
+            logger.info(f"A 股股票池: {len(a_codes)} 只")
+        session.close()
+
+        if a_codes:
+            a_collectors = [
+                ("a_technical",    collect_technical),
+                ("a_capital",      collect_capital),
+                ("a_market_heat",  collect_market_heat),
+            ]
+            logger.info(">>> A 股并行采集开始")
+            t_a = time.time()
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = {pool.submit(_run, name, fn, a_codes): name for name, fn in a_collectors}
+                for f in as_completed(futures):
+                    name, elapsed = f.result()
+                    timings[name] = elapsed
+            timings["a_collect_total"] = round(time.time() - t_a, 1)
+
+    # ── 港美股采集 ──
+    if do_hk_us and not do_watchlist:
+        session = get_db_session()
+        hk_us_stocks = session.query(Stock).filter(
+            ~Stock.market.in_(["SH", "SZ", "BJ"]),
+        ).all()
+        session.close()
+
+        if hk_us_stocks:
+            hk_us_codes = {s.code: s.market for s in hk_us_stocks}
+            logger.info(f"港美股股票池: {len(hk_us_codes)} 只")
+
+            hk_us_collectors = [
+                ("hk_us_technical",    lambda s, c, t: collect_hk_us_technical(s, hk_us_codes, t)),
+                ("hk_us_fundamental",  lambda s, c, t: collect_hk_us_fundamental(s, hk_us_codes, t)),
+                ("hk_us_heat",         lambda s, c, t: collect_hk_us_heat(s, hk_us_codes, t)),
+                ("hk_us_news",         lambda s, c, t: collect_hk_us_news(s, hk_us_codes, t)),
+            ]
+            logger.info(">>> 港美股并行采集开始")
+            t_hk = time.time()
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = {pool.submit(_run, name, fn, None): name for name, fn in hk_us_collectors}
+                for f in as_completed(futures):
+                    name, elapsed = f.result()
+                    timings[name] = elapsed
+            timings["hk_us_collect_total"] = round(time.time() - t_hk, 1)
 
     # 评分（全量模式 或 未指定 --collect-only）
     if not args.collect_only:
