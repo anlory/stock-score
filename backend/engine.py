@@ -52,7 +52,7 @@ class ScoreEngine:
         d["market"] = market
 
         capital_score = self.capital.score(d, stats)
-        # HK/US stocks have no capital flow data
+        # HK/US/ETF stocks have no capital flow data
         if market not in _A_SHARE_MARKETS:
             capital_score = 0.0
 
@@ -82,6 +82,15 @@ class ScoreEngine:
             weights["technical"] += half
             weights["fundamental"] += half
             weights["capital"] = 0.0
+        # ETF gets no fundamental/news either
+        if market == "ETF":
+            fund_w = weights["fundamental"]
+            news_w = weights["news"]
+            weights["technical"] += fund_w * 0.6
+            weights["heat"] += fund_w * 0.4
+            weights["heat"] += news_w
+            weights["fundamental"] = 0.0
+            weights["news"] = 0.0
         return weights
 
     def _calc_total(self, dims: dict, strategy, market: str) -> float:
@@ -123,18 +132,22 @@ class ScoreEngine:
         # Build separate universe pools by market type
         a_share_records = []
         hk_us_records = []
+        etf_records = []
         for r in records:
             stock = stock_map.get(r.code)
             market = stock.market if stock else ""
             r_dict = r.__dict__
             r_dict["market"] = market
-            if market in _A_SHARE_MARKETS:
+            if market == "ETF":
+                etf_records.append(r_dict)
+            elif market in _A_SHARE_MARKETS:
                 a_share_records.append(r_dict)
             else:
                 hk_us_records.append(r_dict)
 
         universe_a = [r if isinstance(r, dict) else r.__dict__ for r in a_share_records]
         universe_hk = [r if isinstance(r, dict) else r.__dict__ for r in hk_us_records]
+        universe_etf = [r if isinstance(r, dict) else r.__dict__ for r in etf_records]
 
         strategies = session.query(Strategy).all()
         scored = 0
@@ -146,7 +159,9 @@ class ScoreEngine:
             r_dict["market"] = market
 
             # Use the correct universe pool for percentile ranking
-            if market in _A_SHARE_MARKETS:
+            if market == "ETF":
+                universe = universe_etf
+            elif market in _A_SHARE_MARKETS:
                 universe = universe_a
             else:
                 universe = universe_hk

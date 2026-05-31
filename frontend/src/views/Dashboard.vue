@@ -33,6 +33,40 @@
     </template>
   </div>
 
+  <!-- ETF -->
+  <div v-else-if="isETF" class="page-container">
+    <div class="flex items-center justify-between mb-5 anim-slide-up">
+      <div class="tab-group">
+        <button v-for="t in etfTabs" :key="t.value"
+          @click="etfTab = t.value"
+          class="tab-item" :class="etfTab === t.value ? 'tab-active' : 'tab-inactive'">
+          {{ t.label }}
+        </button>
+      </div>
+      <div class="tab-group">
+        <button v-for="s in strategyTabs" :key="s.value"
+          @click="strategy = s.value"
+          class="tab-item" :class="strategy === s.value ? 'tab-active-amber' : 'tab-inactive'">
+          {{ s.label }}
+        </button>
+      </div>
+    </div>
+
+    <div v-if="loading" class="space-y-3">
+      <div v-for="i in 8" :key="i" class="skeleton h-12 rounded-lg"></div>
+    </div>
+    <template v-else>
+      <ScoreTable :rows="rows" :strategy="strategy" />
+      <div v-if="!rows.length" class="empty-state">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 5-9"/></svg>
+        </div>
+        <p class="text-white/30 text-sm mt-4">暂无数据</p>
+        <p class="text-white/15 text-xs mt-1">点击右上角「同步」获取 ETF 数据</p>
+      </div>
+    </template>
+  </div>
+
   <!-- A股 / 自选 -->
   <div v-else class="page-container">
     <div class="flex items-center justify-between mb-5 anim-slide-up">
@@ -97,6 +131,7 @@ const loading = ref(false)
 const showGuide = ref(false)
 
 const isHKUS = computed(() => route.path === '/hk')
+const isETF = computed(() => route.path === '/etf')
 
 const hkUsTabs = [
   { value: 'hsi', label: '恒生指数', market: 'HK' },
@@ -106,8 +141,16 @@ const hkUsTabs = [
 ]
 const hkUsTab = ref('hsi')
 
+const etfTabs = [
+  { value: 'all', label: '全部ETF' },
+  { value: '宽基', label: '宽基' },
+  { value: '行业', label: '行业' },
+  { value: '跨境', label: '跨境' },
+]
+const etfTab = ref('all')
+
 const strategyTabs = computed(() => {
-  if (isHKUS.value) {
+  if (isHKUS.value || isETF.value) {
     return [
       { value: 'short_term', label: '短线策略' },
       { value: 'trend', label: '趋势策略' },
@@ -150,27 +193,42 @@ const strategyDimensions = {
 const currentDimensions = computed(() => strategyDimensions[strategy.value] || [])
 
 function getMarketFilter() {
+  if (isETF.value) return 'ETF'
   if (!isHKUS.value) return undefined
   const tab = hkUsTabs.find(t => t.value === hkUsTab.value)
   return tab?.market
+}
+
+function getLeaderboardType() {
+  if (isETF.value) return 'etf'
+  if (isHKUS.value) return 'other'
+  if (route.path === '/watchlist') return 'watchlist'
+  return 'other'
 }
 
 async function load() {
   if (isHKUS.value && !hkUsTab.value) return
   loading.value = true
   try {
+    const market = getMarketFilter()
     const res = await getLeaderboard(
-      isHKUS.value ? 'other' : (route.path === '/watchlist' ? 'watchlist' : 'other'),
+      getLeaderboardType(),
       strategy.value,
-      getMarketFilter()
+      market
     )
-    rows.value = res.stocks || []
+    let stocks = res.stocks || []
+    // Client-side filter for ETF sub-tabs
+    if (isETF.value && etfTab.value !== 'all') {
+      stocks = stocks.filter(s => s.industry === etfTab.value)
+    }
+    rows.value = stocks
   } catch { rows.value = [] }
   loading.value = false
 }
 
 watch(strategy, load)
 watch(hkUsTab, load)
+watch(etfTab, load)
 watch(() => route.path, load)
 onMounted(load)
 </script>

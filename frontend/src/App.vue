@@ -18,6 +18,8 @@
           class="nav-tab" :class="route.path === '/watchlist' ? 'nav-tab-active' : 'nav-tab-inactive'">自选</router-link>
         <router-link to="/hk"
           class="nav-tab" :class="route.path === '/hk' ? 'nav-tab-active' : 'nav-tab-inactive'">港美股</router-link>
+        <router-link to="/etf"
+          class="nav-tab" :class="route.path === '/etf' ? 'nav-tab-active' : 'nav-tab-inactive'">ETF</router-link>
       </div>
 
       <div class="flex-1"></div>
@@ -104,7 +106,7 @@ function onBlur() {
 
 async function doCollect() {
   collecting.value = true
-  const market = route.path === '/hk' ? 'hk_us' : undefined
+  const market = route.path === '/hk' ? 'hk_us' : (route.path === '/etf' ? 'etf' : undefined)
   await triggerCollect(market)
   poll()
 }

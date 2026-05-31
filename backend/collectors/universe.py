@@ -169,10 +169,18 @@ def sync_universe(session, watchlist_codes: list[str] = None, today: str = None)
     except Exception as e:
         logger.error(f"HK/US universe sync failed: {e}")
 
+    # 3.6 ETF sync
+    try:
+        from backend.collectors.etf import sync_etf_universe
+        etf_count = sync_etf_universe(session)
+        logger.info(f"ETF sync: {etf_count} ETFs")
+    except Exception as e:
+        logger.error(f"ETF universe sync failed: {e}")
+
     # 4. Remove stale stocks not in index and not watchlisted
     valid_codes = set(index_stocks.keys())
     hk_us_stocks = session.query(Stock).filter(
-        ~Stock.market.in_(["SH", "SZ", "BJ"])
+        Stock.market.in_(["HK", "US", "ETF"])
     ).all()
     valid_codes.update(s.code for s in hk_us_stocks)
     for wl in (watchlist_codes or []):

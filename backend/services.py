@@ -113,7 +113,14 @@ def collect_single(code: str) -> dict:
         market = stock.market or ""
         target = {code}
 
-        if market in _A_SHARE_MARKETS:
+        if market == "ETF":
+            # ETF collection path — technical only
+            from backend.collectors.etf import collect_etf_technical
+            try:
+                collect_etf_technical(session, target)
+            except Exception as e:
+                logger.warning(f"ETF technical collect failed for {code}: {e}")
+        elif market in _A_SHARE_MARKETS:
             # A-share collection path
             from backend.collectors.profile import fetch_profile
             try:

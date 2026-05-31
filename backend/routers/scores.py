@@ -59,6 +59,7 @@ def get_leaderboard(
             "heat_score": primary[c].heat_score if c in primary else None,
             "setup_score": primary[c].setup_score if c in primary else None,
             "market": stocks[c].market if c in stocks else None,
+            "industry": stocks[c].industry if c in stocks else None,
         }
         for i, c in enumerate(ranked)
         ]

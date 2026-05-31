@@ -14,6 +14,7 @@ from backend.collectors.hk_us.technical import collect_hk_us_technical
 from backend.collectors.hk_us.fundamental import collect_hk_us_fundamental
 from backend.collectors.hk_us.market_heat import collect_hk_us_heat
 from backend.collectors.hk_us.news import collect_hk_us_news
+from backend.collectors.etf import sync_etf_universe, collect_etf_technical
 from backend.engine import ScoreEngine
 from backend.models import Stock
 from backend.services import collect_single
@@ -41,7 +42,7 @@ def _run_collector(name, fn, codes, trade_date):
 
 def _run_collect(trade_date=None, target=None):
     """Run data collection only (universe sync + collectors).
-    target: None (all), 'a' (A-share only), 'hk_us' (HK/US only)
+    target: None (all), 'a' (A-share only), 'hk_us' (HK/US only), 'etf' (ETF only)
     """
     _collect_status["running"] = True
     t0 = time.time()
@@ -85,7 +86,7 @@ def _run_collect(trade_date=None, target=None):
             hk_session = get_db_session()
             try:
                 hk_us_stocks = hk_session.query(Stock).filter(
-                    ~Stock.market.in_(["SH", "SZ", "BJ"])
+                    Stock.market.in_(["HK", "US"])
                 ).all()
             except Exception:
                 hk_us_stocks = []
@@ -109,6 +110,21 @@ def _run_collect(trade_date=None, target=None):
                     _, count, err = _run_collector(name, fn, None, trade_date)
                     if err:
                         logger.error(f"HK/US collector {name} failed: {err}")
+
+        # ETF collection
+        if target is None or target == "etf":
+            etf_session = get_db_session()
+            try:
+                sync_etf_universe(etf_session)
+                etf_codes = {s.code for s in etf_session.query(Stock).filter(
+                    Stock.market == "ETF"
+                ).all()}
+            finally:
+                etf_session.close()
+
+            if etf_codes:
+                logger.info(f"[Collect] ETF: {len(etf_codes)} ETFs")
+                _run_collector("etf_technical", collect_etf_technical, etf_codes, trade_date)
 
         elapsed = round(time.time() - t0)
         _collect_status["last_result"] = f"Collected {len(codes)} stocks for {trade_date} in {elapsed}s"
@@ -176,7 +192,7 @@ def _run_pipeline(target=None):
 
 @router.post("/collect")
 def trigger_collect(market: str = None):
-    """Full pipeline. Optional market filter: 'a', 'hk_us'."""
+    """Full pipeline. Optional market filter: 'a', 'hk_us', 'etf'."""
     if _collect_status["running"]:
         return {"status": "already_running"}
 
@@ -184,6 +200,8 @@ def trigger_collect(market: str = None):
         thread = threading.Thread(target=lambda: _run_collect(target="a"), daemon=True)
     elif market == "hk_us":
         thread = threading.Thread(target=lambda: _run_collect(target="hk_us"), daemon=True)
+    elif market == "etf":
+        thread = threading.Thread(target=lambda: _run_pipeline(target="etf"), daemon=True)
     else:
         thread = threading.Thread(target=_run_pipeline, daemon=True)
     thread.start()

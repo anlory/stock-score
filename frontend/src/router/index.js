@@ -8,6 +8,7 @@ export default createRouter({
     { path: '/', component: Dashboard },
     { path: '/watchlist', component: Dashboard },
     { path: '/hk', component: Dashboard },
+    { path: '/etf', component: Dashboard },
     { path: '/stock/:code', component: StockDetail },
   ],
 })
