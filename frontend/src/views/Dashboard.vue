@@ -1,58 +1,86 @@
 <template>
   <!-- 港美股 -->
-  <div v-if="isHKUS" class="p-6">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex gap-5 border-b border-gray-800">
+  <div v-if="isHKUS" class="page-container">
+    <div class="flex items-center justify-between mb-5 anim-slide-up">
+      <div class="tab-group">
         <button v-for="t in hkUsTabs" :key="t.value"
           @click="hkUsTab = t.value"
-          class="pb-2 text-sm font-medium border-b-2 transition-colors"
-          :class="hkUsTab === t.value ? 'border-amber-400 text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
+          class="tab-item" :class="hkUsTab === t.value ? 'tab-active' : 'tab-inactive'">
           {{ t.label }}
         </button>
       </div>
-      <div class="flex gap-3 border-b border-gray-800">
+      <div class="tab-group">
         <button v-for="s in strategyTabs" :key="s.value"
           @click="strategy = s.value"
-          class="pb-2 text-sm font-medium border-b-2 transition-colors"
-          :class="strategy === s.value ? 'border-amber-400 text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
+          class="tab-item" :class="strategy === s.value ? 'tab-active-amber' : 'tab-inactive'">
           {{ s.label }}
         </button>
       </div>
     </div>
-    <ScoreTable :rows="rows" :strategy="strategy" />
-    <div v-if="!rows.length && !loading" class="text-center py-12 text-gray-600">暂无数据，请先触发同步</div>
+
+    <div v-if="loading" class="space-y-3">
+      <div v-for="i in 8" :key="i" class="skeleton h-12 rounded-lg"></div>
+    </div>
+    <template v-else>
+      <ScoreTable :rows="rows" :strategy="strategy" />
+      <div v-if="!rows.length" class="empty-state">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 5-9"/></svg>
+        </div>
+        <p class="text-white/30 text-sm mt-4">暂无数据</p>
+        <p class="text-white/15 text-xs mt-1">点击右上角「同步」获取数据</p>
+      </div>
+    </template>
   </div>
 
   <!-- A股 / 自选 -->
-  <div v-else class="p-6">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex gap-5 border-b border-gray-800">
+  <div v-else class="page-container">
+    <div class="flex items-center justify-between mb-5 anim-slide-up">
+      <div class="tab-group">
         <button v-for="s in strategyTabs" :key="s.value"
           @click="strategy = s.value"
-          class="pb-2 text-sm font-medium border-b-2 transition-colors"
-          :class="strategy === s.value ? 'border-amber-400 text-amber-400' : 'border-transparent text-gray-500 hover:text-gray-300'">
+          class="tab-item" :class="strategy === s.value ? 'tab-active-amber' : 'tab-inactive'">
           {{ s.label }}
         </button>
       </div>
       <button @click="showGuide = !showGuide"
-        class="bg-gray-800 border rounded-md px-2.5 py-1 text-xs transition-colors"
-        :class="showGuide ? 'border-blue-500 text-blue-400' : 'border-gray-700 text-gray-400 hover:text-gray-200'">
-        ? 评分说明
+        class="guide-toggle" :class="{ active: showGuide }">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5"/></svg>
+        评分说明
       </button>
     </div>
 
-    <div v-if="showGuide" class="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
-      <h3 class="text-amber-400 text-sm font-bold mb-3">{{ currentStrategyLabel }}权重</h3>
-      <div class="grid grid-cols-3 gap-4">
-        <div v-for="d in currentDimensions" :key="d.key" class="bg-gray-950 rounded-lg p-3" :style="{ borderTop: `2px solid ${d.color}` }">
-          <div class="font-bold text-xs" :style="{ color: d.color }">{{ d.label }}</div>
-          <div class="text-gray-500 text-xs mt-1.5 leading-relaxed">{{ d.desc }}</div>
+    <!-- Scoring Guide -->
+    <Transition name="guide">
+      <div v-if="showGuide" class="guide-container mb-5">
+        <div class="guide-header">
+          <h3 class="guide-title">{{ currentStrategyLabel }}权重分布</h3>
+        </div>
+        <div class="guide-grid">
+          <div v-for="(d, i) in currentDimensions" :key="d.key" class="guide-card stagger" :style="{ '--stagger': i }">
+            <div class="guide-card-accent" :style="{ background: d.color }"></div>
+            <div class="guide-card-body">
+              <div class="guide-card-label" :style="{ color: d.color }">{{ d.label }}</div>
+              <div class="guide-card-desc">{{ d.desc }}</div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
-    <ScoreTable :rows="rows" :strategy="strategy" @added="load" />
-    <div v-if="!rows.length && !loading" class="text-center py-12 text-gray-600">暂无数据，请先触发同步</div>
+    <div v-if="loading" class="space-y-3">
+      <div v-for="i in 8" :key="i" class="skeleton h-12 rounded-lg"></div>
+    </div>
+    <template v-else>
+      <ScoreTable :rows="rows" :strategy="strategy" @added="load" />
+      <div v-if="!rows.length" class="empty-state">
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 5-9"/></svg>
+        </div>
+        <p class="text-white/30 text-sm mt-4">暂无数据</p>
+        <p class="text-white/15 text-xs mt-1">点击右上角「同步」获取数据</p>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -146,3 +174,149 @@ watch(hkUsTab, load)
 watch(() => route.path, load)
 onMounted(load)
 </script>
+
+<style scoped>
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 24px 48px;
+}
+
+/* ── Tab group ─────────────────────────────────── */
+.tab-group {
+  display: flex;
+  gap: 2px;
+  background: rgba(148, 163, 184, 0.04);
+  border-radius: 10px;
+  padding: 3px;
+}
+.tab-item {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  border: none;
+  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.tab-active {
+  background: rgba(148, 163, 184, 0.1);
+  color: #f1f5f9;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.tab-active-amber {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.tab-inactive {
+  background: transparent;
+  color: rgba(148, 163, 184, 0.5);
+}
+.tab-inactive:hover {
+  color: rgba(241, 245, 249, 0.7);
+  background: rgba(148, 163, 184, 0.04);
+}
+
+/* ── Guide toggle ──────────────────────────────── */
+.guide-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  background: transparent;
+  color: rgba(148, 163, 184, 0.4);
+  transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.guide-toggle:hover {
+  color: rgba(241, 245, 249, 0.7);
+  border-color: rgba(148, 163, 184, 0.15);
+}
+.guide-toggle.active {
+  color: rgba(96, 165, 250, 0.8);
+  border-color: rgba(96, 165, 250, 0.25);
+  background: rgba(96, 165, 250, 0.06);
+}
+
+/* ── Guide container ───────────────────────────── */
+.guide-container {
+  background: rgba(17, 24, 39, 0.5);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  border-radius: 14px;
+  padding: 20px;
+  overflow: hidden;
+}
+.guide-header {
+  margin-bottom: 16px;
+}
+.guide-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fbbf24;
+}
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 768px) {
+  .guide-grid { grid-template-columns: 1fr; }
+}
+.guide-card {
+  display: flex;
+  gap: 12px;
+  background: rgba(6, 8, 15, 0.5);
+  border-radius: 10px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.05);
+}
+.guide-card-accent {
+  width: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.guide-card-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.guide-card-desc {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.5);
+  line-height: 1.6;
+}
+
+/* ── Guide transition ──────────────────────────── */
+.guide-enter-active { transition: all 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.guide-leave-active { transition: all 200ms ease-in; }
+.guide-enter-from, .guide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+  max-height: 0;
+  margin-bottom: 0;
+  padding: 0 20px;
+}
+.guide-enter-to, .guide-leave-from {
+  max-height: 300px;
+}
+
+/* ── Empty state ───────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 64px 0;
+  animation: fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.empty-icon {
+  color: rgba(148, 163, 184, 0.12);
+}
+</style>
